@@ -40,15 +40,38 @@ async function fingerprint(page: Page) {
   });
 }
 
-/** Scrolls to a fraction of the stage section and lets the playhead settle. */
+/**
+ * Scrolls to a fraction of the stage and waits for the canvas to settle.
+ *
+ * Lenis is inertial and the playhead is damped, so the frame keeps changing
+ * after the scroll lands. A fixed sleep is the obvious thing and it is flaky:
+ * long enough on an idle machine, too short when the suite runs five workers
+ * wide. Polling until two consecutive fingerprints match waits exactly as long
+ * as it needs to.
+ */
 async function scrubTo(page: Page, fraction: number) {
   await page.evaluate((f) => {
     const stage = document.getElementById("stage")!;
     const span = stage.offsetHeight - window.innerHeight;
     window.scrollTo({ top: stage.offsetTop + span * f, behavior: "instant" });
   }, fraction);
-  // Lenis is inertial and the playhead is damped; give both time to arrive.
-  await page.waitForTimeout(1400);
+
+  // Two conditions, and the second one matters more than it looks. Waiting only
+  // for stability exits immediately: right after the scroll the canvas still
+  // holds the previous frame and is, for one poll interval, perfectly stable.
+  // So the frame has to change first, and only then settle.
+  const before = await fingerprint(page);
+  let previous = "";
+  let moved = false;
+
+  for (let attempt = 0; attempt < 50; attempt++) {
+    await page.waitForTimeout(100);
+    const current = await fingerprint(page);
+    if (current === "") continue;
+    if (current !== before) moved = true;
+    if (moved && current === previous) return;
+    previous = current;
+  }
 }
 
 test.beforeEach(async ({ page }) => {

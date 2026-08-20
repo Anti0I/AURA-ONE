@@ -20,6 +20,7 @@
     "verify": "npm run typecheck && npm run lint && npm run test"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "clsx": "^2.1.1",
     "geist": "^1.7.2",
     "gsap": "^3.15.0",

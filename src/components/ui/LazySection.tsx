@@ -39,9 +39,11 @@ export function LazySection({
     if (!el || mounted) return;
 
     // No IntersectionObserver means an old browser we are not optimising for;
-    // render everything rather than render nothing.
+    // render everything rather than render nothing. Deferred to a microtask so
+    // it does not set state synchronously inside the effect and cascade a
+    // second render.
     if (typeof IntersectionObserver === "undefined") {
-      setMounted(true);
+      queueMicrotask(() => setMounted(true));
       return;
     }
 
