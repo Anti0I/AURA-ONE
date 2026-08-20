@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>AURA ONE — render harness</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #101014;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+    <!--
+      Bare specifiers resolve straight into node_modules, served by the static
+      server that scripts/prerender.mjs spins up. No bundler in the render
+      path: fewer moving parts, and the scene file stays plain ESM.
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/node_modules/three/build/three.module.js",
+          "three/addons/": "/node_modules/three/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <script type="module">
+      import { createStage } from "/assets-src/device/scene.mjs";
+
+      const canvas = document.getElementById("stage");
+      const stage = createStage(canvas);
+
+      // The prerender script drives everything through this handle.
+      window.__stage = {
+        setSize(w, h) {
+          canvas.width = w;
+          canvas.height = h;
+          canvas.style.width = w + "px";
+          canvas.style.height = h + "px";
+          stage.setSize(w, h);
+        },
+        frame(t) {
+          stage.renderFrame(t);
+          return canvas.toDataURL("image/png");
+        },
+        xray(mode) {
+          stage.renderXray(mode);
+          return canvas.toDataURL("image/png");
+        },
+        hotspots() {
+          return stage.getHotspots();
+        },
+        info() {
+          const gl = stage.renderer.getContext();
+          const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+          return {
+            renderer: dbg
+              ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)
+              : gl.getParameter(gl.RENDERER),
+            version: gl.getParameter(gl.VERSION),
+          };
+        },
+      };
+
+      window.__stageReady = true;
+    </script>
+  </body>
+</html>
