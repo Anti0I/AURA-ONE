@@ -1,26 +1,186 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ==========================================================================
+   AURA ONE — design tokens
+   Single dark theme, committed on purpose: this is a product page, not an app.
+   Every value below is referenced by name; no raw hex outside this block.
+   ========================================================================== */
+
+@theme {
+  /* --- Surfaces -----------------------------------------------------------
+     Deep graphite, never #000. Flat black kills the sense of depth and makes
+     OLED smearing obvious during the scrollytelling. */
+  --color-void: #09090b;
+  --color-surface: #0e0e11;
+  --color-raised: #131317;
+  --color-line: #1f1f25;
+  --color-line-strong: #2c2c35;
+
+  /* --- Text ---------------------------------------------------------------
+     Contrast against --color-void: text 15.9:1, dim 7.8:1, faint 3.8:1.
+     `faint` is for >=24px or non-text only -- it does not pass AA for body. */
+  --color-ink: #ededf0;
+  --color-ink-dim: #a1a1ab;
+  --color-ink-faint: #6e6e79;
+
+  /* --- Accents ------------------------------------------------------------
+     Two accents with strict roles:
+       signal -- structure, focus rings, leader lines, active nav (11.0:1)
+       live   -- only for "something is happening right now": streaming
+                 tokens, FPS meter, recording state (16.7:1) */
+  --color-signal: #4fd1ff;
+  --color-signal-dim: #1c5f78;
+  --color-live: #c6ff3d;
+  --color-alert: #ff5c39;
+
+  /* --- Product materials (canvas tinting targets) ------------------------ */
+  --color-obsidian: #16161a;
+  --color-titanium: #b8bcc4;
+  --color-amber: #c88a3e;
+  --color-signalwhite: #e8e8ec;
+
+  /* --- Type --------------------------------------------------------------- */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+
+  --text-display: clamp(2.75rem, 9.5vw, 8.5rem);
+  --text-display--line-height: 0.92;
+  --text-display--letter-spacing: -0.045em;
+
+  --text-title: clamp(2rem, 5vw, 4rem);
+  --text-title--line-height: 1.02;
+  --text-title--letter-spacing: -0.035em;
+
+  --text-lead: clamp(1.0625rem, 1.6vw, 1.375rem);
+  --text-lead--line-height: 1.5;
+
+  --text-label: 0.6875rem;
+  --text-label--line-height: 1.2;
+  --text-label--letter-spacing: 0.14em;
+
+  /* --- Motion -------------------------------------------------------------
+     `--ease-out-expo` is the house curve: long tail, no overshoot. Overshoot
+     reads as "bouncy template" at this scale. */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
+  --duration-fast: 160ms;
+  --duration-base: 320ms;
+  --duration-slow: 720ms;
+
+  /* --- Layout ------------------------------------------------------------- */
+  --spacing-gutter: clamp(1.25rem, 4vw, 4rem);
+  --radius-tile: 14px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+/* ==========================================================================
+   Base
+   ========================================================================== */
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    /* Lenis owns scrolling; native smooth-scroll would fight it. */
+    scroll-behavior: auto;
+    -webkit-text-size-adjust: 100%;
+    background-color: var(--color-void);
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-void);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: none;
+  }
+
+  /* Every number on this page is telemetry. Telemetry does not reflow. */
+  :where(.tabular, [data-numeric]) {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "zero" 1;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  /* The custom cursor replaces the native one only where we actually draw it. */
+  [data-cursor="hidden"] {
+    cursor: none;
+  }
+
+  ::selection {
+    background-color: var(--color-signal);
+    color: var(--color-void);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ==========================================================================
+   Utilities
+   ========================================================================== */
+
+@utility noise-field {
+  /* One 128px tile, GPU-composited, animated only via background-position in
+     discrete steps. Animating an SVG feTurbulence here repaints the whole
+     viewport every frame and costs ~8ms on a mid laptop. */
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("/noise.png");
+  background-repeat: repeat;
+  background-size: 128px 128px;
+  opacity: 0.032;
+  mix-blend-mode: overlay;
+  will-change: background-position;
+  animation: noise-shift 1s steps(8) infinite;
+}
+
+@utility rule-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  letter-spacing: var(--text-label--letter-spacing);
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}
+
+@keyframes noise-shift {
+  0% { background-position: 0 0; }
+  12.5% { background-position: -8px 4px; }
+  25% { background-position: 6px -10px; }
+  37.5% { background-position: -12px -6px; }
+  50% { background-position: 10px 8px; }
+  62.5% { background-position: -4px 12px; }
+  75% { background-position: 12px -4px; }
+  87.5% { background-position: -10px -12px; }
+  100% { background-position: 0 0; }
+}
+
+/* ==========================================================================
+   Reduced motion
+   Not a courtesy branch: the scrollytelling, the scanner and the ambient bed
+   all have first-class static equivalents. See lib/motion.ts.
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .noise-field {
+    animation: none;
+  }
 }
