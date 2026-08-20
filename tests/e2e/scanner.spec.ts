@@ -9,12 +9,22 @@ import { test, expect, type Page } from "@playwright/test";
 async function openScanner(page: Page) {
   await page.goto("/");
   await expect(page.getByRole("status")).toBeHidden({ timeout: 30_000 });
+  // The scanner is code-split behind an IntersectionObserver, so it does not
+  // exist until the page has been scrolled near it. Scroll first, then wait for
+  // the real section to replace its placeholder.
+  await page.evaluate(() =>
+    window.scrollTo({
+      top: document.body.scrollHeight * 0.8,
+      behavior: "instant",
+    }),
+  );
+  await page.waitForSelector("#scanner [data-lens]", { timeout: 20_000 });
   await page.evaluate(() =>
     document
       .getElementById("scanner")
       ?.scrollIntoView({ behavior: "instant", block: "center" }),
   );
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(900);
 }
 
 /** Aims at a normalised point inside the scanner frame and lets it settle. */

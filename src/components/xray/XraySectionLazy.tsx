@@ -18,7 +18,7 @@ const XraySection = dynamic(
 
 export function XraySectionLazy() {
   return (
-    <LazySection minHeight="90svh">
+    <LazySection id="scanner" minHeight="90svh">
       <XraySection />
     </LazySection>
   );

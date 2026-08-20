@@ -17,10 +17,17 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
  */
 export function LazySection({
   children,
+  id,
   minHeight = "100svh",
   rootMargin = "500px",
 }: {
   children: ReactNode;
+  /**
+   * Anchor id, carried by the placeholder as well as the mounted section.
+   * Without it a deep link to a lazy section points at an element that does
+   * not exist yet, and the jump silently does nothing.
+   */
+  id?: string;
   minHeight?: string;
   rootMargin?: string;
 }) {
@@ -52,7 +59,11 @@ export function LazySection({
   }, [mounted, rootMargin]);
 
   return (
-    <div ref={ref} style={mounted ? undefined : { minHeight }}>
+    <div
+      ref={ref}
+      id={mounted ? undefined : id}
+      style={mounted ? undefined : { minHeight }}
+    >
       {mounted ? children : null}
     </div>
   );
