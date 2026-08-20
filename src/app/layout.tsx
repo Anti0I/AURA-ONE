@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { PRODUCT } from "@/data/specs";
+import { AppBoot } from "@/components/AppBoot";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -51,6 +52,7 @@ export default function RootLayout({
         >
           Skip to content
         </a>
+        <AppBoot />
         {children}
       </body>
     </html>

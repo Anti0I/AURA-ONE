@@ -1,8 +1,25 @@
 import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
+
+/**
+ * tailwind-merge has no idea what is in our `@theme`, and its fallback for an
+ * unrecognised `text-*` class is to assume it is a colour. That makes
+ * `text-display text-ink` a conflict, and it silently drops the font size —
+ * a headline rendering at 16px with no error anywhere.
+ *
+ * Registering our custom type scale is the fix. Worth knowing about: every
+ * Tailwind v4 theme key that shares a prefix with a built-in group needs this.
+ */
+const merge = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      "font-size": [{ text: ["display", "title", "lead", "label"] }],
+    },
+  },
+});
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
+  return merge(clsx(inputs));
 }
 
 /** Linear interpolation. */

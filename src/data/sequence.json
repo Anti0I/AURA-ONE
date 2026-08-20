@@ -1,0 +1,58 @@
+{
+  "generatedAt": "2026-08-20T22:16:54.343Z",
+  "sourceFrameCount": 120,
+  "source": {
+    "width": 1440,
+    "height": 1440
+  },
+  "variants": {
+    "desktop": {
+      "width": 1440,
+      "height": 1440,
+      "basePath": "/seq/desktop",
+      "ext": "webp",
+      "frameCount": 120,
+      "stride": 1,
+      "totalBytes": 5114040,
+      "maxFrameBytes": 100926,
+      "avgFrameBytes": 42617
+    },
+    "mobile": {
+      "width": 720,
+      "height": 720,
+      "basePath": "/seq/mobile",
+      "ext": "webp",
+      "frameCount": 60,
+      "stride": 2,
+      "totalBytes": 1574698,
+      "maxFrameBytes": 57546,
+      "avgFrameBytes": 26245
+    }
+  },
+  "xray": {
+    "outer": [
+      {
+        "width": 2400,
+        "url": "/img/xray-outer.avif",
+        "bytes": 31434
+      },
+      {
+        "width": 1200,
+        "url": "/img/xray-outer-1200.avif",
+        "bytes": 16089
+      }
+    ],
+    "inner": [
+      {
+        "width": 2400,
+        "url": "/img/xray-inner.avif",
+        "bytes": 162398
+      },
+      {
+        "width": 1200,
+        "url": "/img/xray-inner-1200.avif",
+        "bytes": 63884
+      }
+    ]
+  }
+}

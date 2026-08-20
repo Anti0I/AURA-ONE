@@ -173,3 +173,13 @@ await fsp.writeFile(
 
 console.log(`\nmanifest -> public/seq/manifest.json`);
 console.log("Next: npm run audit:budget");
+
+// A second copy under src/ so the app can `import` the manifest at build time.
+// It is ~1 KB of JSON that the frame player needs before it can request
+// anything; fetching it at runtime would put a round-trip in front of the very
+// first frame, which is exactly the wrong place for one.
+await fsp.writeFile(
+  path.join(ROOT, "src", "data", "sequence.json"),
+  JSON.stringify(manifest, null, 2) + "\n",
+);
+console.log("manifest -> src/data/sequence.json");
