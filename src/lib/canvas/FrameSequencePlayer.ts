@@ -67,8 +67,11 @@ export class FrameSequencePlayer {
   private drawMs = 0;
 
   private preloadResolve: (() => void) | null = null;
-  private preloadTarget = 0;
-  private preloadDone = 0;
+  private preloadTotal = 0;
+  /** Frames the boot is still waiting on. Membership, not a counter. */
+  private readonly preloadNeeded = new Set<number>();
+  private readonly failures = new Map<number, number>();
+  private preloadTimeout = 0;
   private onPreloadProgress: ((ratio: number) => void) | null = null;
 
   constructor(
@@ -115,6 +118,7 @@ export class FrameSequencePlayer {
   }
 
   destroy() {
+    window.clearTimeout(this.preloadTimeout);
     this.detach?.();
     this.observer?.disconnect();
     this.worker?.terminate();
@@ -165,15 +169,32 @@ export class FrameSequencePlayer {
    * on screen is the number of frames actually in memory.
    */
   preload(count: number, onProgress?: (ratio: number) => void): Promise<void> {
-    this.preloadTarget = Math.min(count, this.variant.frameCount);
-    this.preloadDone = 0;
+    this.preloadTotal = Math.min(count, this.variant.frameCount);
+    this.preloadNeeded.clear();
+    this.failures.clear();
     this.onPreloadProgress = onProgress ?? null;
 
-    for (let i = 0; i < this.preloadTarget; i++) this.request(i, i === 0);
+    for (let i = 0; i < this.preloadTotal; i++) {
+      this.preloadNeeded.add(i);
+      this.request(i, i === 0);
+    }
 
     return new Promise((resolve) => {
       this.preloadResolve = resolve;
-      if (this.preloadTarget === 0) this.finishPreload();
+
+      // Hard escape hatch. The preloader blocks scrolling, so it must not be
+      // able to trap the page — a flaky connection or an exhausted retry
+      // budget has to end with the site usable, not with a stuck counter.
+      this.preloadTimeout = window.setTimeout(() => {
+        if (this.preloadResolve) {
+          console.warn(
+            `[frame-player] boot released with ${this.preloadNeeded.size} frame(s) outstanding`,
+          );
+          this.finishPreload();
+        }
+      }, 12_000);
+
+      this.checkPreload();
     });
   }
 
@@ -210,6 +231,8 @@ export class FrameSequencePlayer {
       // Existing bitmaps are the wrong size but still better than a blank
       // canvas, so they stay until their replacements arrive.
       this.request(this.frameIndex(this.current), true);
+      // Anything the boot is still waiting on was just discarded in flight.
+      for (const index of this.preloadNeeded) this.request(index, false);
     }
 
     if (this.opts.reportTelemetry) {
@@ -268,22 +291,51 @@ export class FrameSequencePlayer {
     if (message.type === "decoded") {
       this.cache.set(message.index, message.bitmap, message.bytes);
       if (message.index === this.lastDrawn) this.lastDrawn = -1;
+    } else {
+      // Two goes, then stop waiting on it. A frame that 404s must not hold the
+      // boot open, and one that failed transiently deserves a second chance.
+      const attempts = (this.failures.get(message.index) ?? 0) + 1;
+      this.failures.set(message.index, attempts);
+      if (attempts < 2) this.request(message.index, false);
+      else this.preloadNeeded.delete(message.index);
     }
 
-    if (this.preloadResolve) {
-      this.preloadDone++;
-      this.onPreloadProgress?.(
-        Math.min(1, this.preloadDone / this.preloadTarget),
-      );
-      if (this.preloadDone >= this.preloadTarget) this.finishPreload();
+    this.checkPreload();
+  }
+
+  /**
+   * Progress is measured by what is actually in the cache, not by counting
+   * replies.
+   *
+   * A counter looks equivalent and is not: a resize bumps the generation and
+   * the worker discards everything in flight, so those replies never arrive
+   * and the counter stops short of its target forever. That is a preloader
+   * that never lets go of the page — and it only reproduces when the layout
+   * settles late, which is to say on phones and on slow font loads, and never
+   * on the machine it was written on.
+   */
+  private checkPreload() {
+    if (!this.preloadResolve) return;
+
+    for (const index of this.preloadNeeded) {
+      if (this.cache.has(index)) this.preloadNeeded.delete(index);
     }
+
+    const done = this.preloadTotal - this.preloadNeeded.size;
+    this.onPreloadProgress?.(
+      this.preloadTotal === 0 ? 1 : Math.min(1, done / this.preloadTotal),
+    );
+
+    if (this.preloadNeeded.size === 0) this.finishPreload();
   }
 
   private finishPreload() {
+    window.clearTimeout(this.preloadTimeout);
     this.onPreloadProgress?.(1);
     this.preloadResolve?.();
     this.preloadResolve = null;
     this.onPreloadProgress = null;
+    this.preloadNeeded.clear();
   }
 
   private tick(delta: number) {

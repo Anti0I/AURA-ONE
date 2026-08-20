@@ -118,7 +118,23 @@ if (fs.existsSync(noisePath)) {
 const htmlPath = path.join(ROOT, ".next", "server", "app", "index.html");
 if (fs.existsSync(htmlPath)) {
   const html = await fsp.readFile(htmlPath, "utf8");
-  const refs = new Set(html.match(/\/_next\/static\/[\w./-]+\.js/g) ?? []);
+
+  // Skip `noModule` scripts. Next emits a core-js polyfill bundle for browsers
+  // that predate ES modules; every browser this site targets ignores it
+  // entirely, so counting its 39 KB against the budget would be measuring
+  // bytes nobody downloads and would push real work out to make room for it.
+  const legacy = new Set(
+    [...html.matchAll(/<script[^>]*noModule[^>]*>/g)].flatMap(
+      (m) => m[0].match(/\/_next\/static\/[\w./-]+\.js/g) ?? [],
+    ),
+  );
+
+  const refs = new Set(
+    (html.match(/\/_next\/static\/[\w./-]+\.js/g) ?? []).filter(
+      (r) => !legacy.has(r),
+    ),
+  );
+
   let gz = 0;
   let missing = 0;
   for (const ref of refs) {

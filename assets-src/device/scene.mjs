@@ -588,11 +588,17 @@ export function createStage(canvas) {
     poseForXray();
     const out = [];
     const v = new THREE.Vector3();
+    const box = new THREE.Box3();
     for (const p of parts) {
       const meta = HOTSPOT_META[p.name];
       if (!meta) continue;
       p.object.updateMatrixWorld(true);
-      p.object.getWorldPosition(v);
+      // Bounding-box centre, not the object's origin. Several parts are Groups
+      // whose transform sits at the world origin with the geometry offset in
+      // the children — projecting the origin puts their label dead centre of
+      // frame, pointing at nothing.
+      box.setFromObject(p.object);
+      box.getCenter(v);
       v.project(camera);
       out.push({
         id: p.name,

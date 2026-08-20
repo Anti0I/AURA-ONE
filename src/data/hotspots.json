@@ -8,8 +8,8 @@
   },
   {
     "id": "battery",
-    "x": 0.4262,
-    "y": 0.5878,
+    "x": 0.42807,
+    "y": 0.58816,
     "title": "Li-Si Cell",
     "detail": "78 mAh // 3.85 V nominal"
   },
@@ -29,8 +29,8 @@
   },
   {
     "id": "mics",
-    "x": 0.5,
-    "y": 0.5,
+    "x": 0.56651,
+    "y": 0.27299,
     "title": "MEMS Quad-Mic Array",
     "detail": "Active beamforming // 68 dB SNR"
   },

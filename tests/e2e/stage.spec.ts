@@ -99,9 +99,9 @@ test("scrubbing advances the sequence", async ({ page }) => {
 
 test("captions follow the sequence", async ({ page }) => {
   await scrubTo(page, 0.2);
-  await expect(page.getByRole("heading", { level: 2 })).toContainText(
-    "Form follows thought",
-  );
+  await expect(
+    page.locator("#stage").getByRole("heading", { name: /Form follows thought/ }),
+  ).toBeVisible();
 
   await scrubTo(page, 0.55);
   await expect(

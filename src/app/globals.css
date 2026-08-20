@@ -190,3 +190,9 @@
   0% { transform: translateY(-100%); }
   55%, 100% { transform: translateY(1000%); }
 }
+
+/* Level meter in the sound control. */
+@keyframes eq {
+  from { transform: scaleY(0.28); }
+  to { transform: scaleY(1); }
+}
