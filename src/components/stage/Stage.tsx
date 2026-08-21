@@ -82,11 +82,15 @@ export function Stage() {
     framing.current = FRAMING[tier];
 
     const player = new FrameSequencePlayer(canvas, variant, {
-      // Mobile ships half the frames, so a matched look-ahead in *seconds* of
-      // scrolling is half the count. Same window in time, half the memory.
-      cacheSize: tier === "mobile" ? 16 : 24,
-      maxCacheBytes: (tier === "mobile" ? 44 : 120) * 1024 * 1024,
-      lookAhead: tier === "mobile" ? 6 : 10,
+      video: SEQUENCE.video[tier],
+      // A window measured in frames covers half the scroll distance it used to,
+      // now that there are twice as many frames — so it doubles. The byte cap
+      // is what actually binds on a high-DPI display and it is unchanged in
+      // spirit: it is a ceiling on decoded pixels, not on frames.
+      cacheSize: tier === "mobile" ? 32 : 48,
+      maxCacheBytes: (tier === "mobile" ? 56 : 160) * 1024 * 1024,
+      lookAhead: tier === "mobile" ? 12 : 20,
+      lookBehind: 8,
       reportTelemetry: true,
     });
     player.start();
@@ -101,6 +105,9 @@ export function Stage() {
     // resident, not a timer pretending to be one. We hold the boot on the
     // opening run only — the rest streams in behind the hero.
     const store = useAppStore.getState();
+    // A budget in *time to first paint*, not a fraction of the timeline. The
+    // video source streams, so these are the frames behind the opening
+    // keyframe and a little after it — roughly the first hundred kilobytes.
     const opening = tier === "mobile" ? 12 : 24;
     void player.preload(opening, store.setBootProgress).then(() => {
       store.setBooted(true);

@@ -14,7 +14,6 @@ export const metadata: Metadata = {
 };
 
 const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(2)} MB`;
-const kb = (bytes: number) => `${(bytes / 1024).toFixed(1)} KB`;
 
 /**
  * The case study.
@@ -27,6 +26,7 @@ const kb = (bytes: number) => `${(bytes / 1024).toFixed(1)} KB`;
 export default function EngineeringPage() {
   const desktop = SEQUENCE.variants.desktop;
   const mobile = SEQUENCE.variants.mobile;
+  const video = SEQUENCE.video;
 
   return (
     <main id="main" className="relative mx-auto max-w-3xl px-gutter py-24">
@@ -71,12 +71,13 @@ export default function EngineeringPage() {
 
       <Section title="The frame sequence">
         <P>
-          The product walkthrough is a canvas playing 120 pre-rendered frames
+          The product walkthrough is a canvas drawing pre-rendered frames
           against scroll position — the technique Apple uses, and the reason
           they use it is that a <Code>&lt;video&gt;</Code> element cannot be
           scrubbed frame-accurately. Setting{" "}
           <Code>video.currentTime</Code> asks the decoder to seek, and it
-          answers whenever it feels like it.
+          answers whenever it feels like it, coalescing and dropping seeks
+          under a fast scrub.
         </P>
         <P>
           The frames come from a Three.js scene driven through headless
@@ -86,38 +87,110 @@ export default function EngineeringPage() {
           rounding in with it.
         </P>
 
+        <H3>The premise was never about the codec</H3>
+        <P>
+          Which is what the first version got wrong, at a cost of 9.09 MB.
+          Everything above is true of the{" "}
+          <Code>&lt;video&gt;</Code> <em>element</em>, not of video. WebCodecs
+          hands you the decoder directly: <Code>VideoDecoder</Code> takes
+          encoded chunks and returns frames, in order, with no seeking
+          heuristics anywhere in the path. There is nothing left to be
+          imprecise about.
+        </P>
+        <P>
+          So the walkthrough plays a VP9 stream and keeps the stills as the
+          fallback. What that buys is inter-frame prediction, and a slowly
+          rotating object is about as predictable as content gets. The same 240
+          frames cost a third as much, which is what paid for doubling the frame
+          count in the first place.
+        </P>
+
         <Figures
           rows={[
             ["Source frames", `${SEQUENCE.sourceFrameCount} × 1440² PNG RGBA`],
             [
-              "Desktop variant",
-              `${desktop.frameCount} frames · ${mb(desktop.totalBytes)} · avg ${kb(desktop.avgFrameBytes)}`,
+              "Desktop video",
+              `${video.desktop.frameCount} frames · ${mb(video.desktop.bytes)} · ${video.desktop.codec}`,
             ],
             [
-              "Mobile variant",
-              `${mobile.frameCount} frames · ${mb(mobile.totalBytes)} · avg ${kb(mobile.avgFrameBytes)}`,
+              "Mobile video",
+              `${video.mobile.frameCount} frames · ${mb(video.mobile.bytes)}`,
             ],
-            ["Render time", "66 s, software WebGL"],
+            [
+              "Same frames as WebP stills",
+              "9.09 MB — 2.7× the video, for identical pictures",
+            ],
+            [
+              "Still fallback",
+              `${desktop.frameCount} / ${mobile.frameCount} frames · ${mb(desktop.totalBytes)} / ${mb(mobile.totalBytes)}`,
+            ],
+            ["Render time", "115 s, software WebGL"],
           ]}
         />
 
-        <H3>WebP for the sequence, AVIF for the stills</H3>
+        <H3>No container</H3>
         <P>
-          AVIF is roughly 18% smaller per frame at matched quality, and for the
-          two large X-Ray stills that is free — they are decoded once. For the
-          sequence it is the wrong trade. AVIF-with-alpha decodes about three
-          times slower than WebP, and a fast scrub decodes several frames per
-          frame of animation. Bytes are a one-time cost; decode is per-scrub,
-          every scrub.
+          The chunks have to be got at somehow, and MP4 means shipping a
+          demuxer — mp4box.js is around 60 KB gzipped. IVF is a 32-byte file
+          header and twelve bytes before each frame, which is thirty lines of{" "}
+          <Code>DataView</Code> and no dependency. Keyframe flags are read out
+          of VP9&rsquo;s own uncompressed header rather than recorded at build
+          time, so the file describes itself and there is nothing to keep in
+          sync.
         </P>
 
-        <H3>Mobile takes every second frame</H3>
+        <H3>Alpha, which video does not have</H3>
         <P>
-          A phone scrubs the pinned section across roughly a third of the pixels
-          a desktop does, so 60 frames land at a similar
-          frames-per-scrolled-pixel density. It halves the transfer and — more
-          importantly — halves the decode work on the weakest hardware in the
-          audience.
+          Colour and matte are packed side by side in one frame with a black
+          gutter between them, because 4:2:0 chroma is shared across two pixels
+          and without the gutter the seam bleeds colour into the first column of
+          matte. Recombining them needs luminance to become alpha, and a 2D
+          canvas cannot do that — <Code>globalCompositeOperation</Code> only
+          reads the source&rsquo;s alpha, which in the matte is opaque
+          everywhere.
+        </P>
+        <P>
+          So the decoded frame goes straight into a WebGL2 texture and both
+          halves are sampled in one pass, in a worker, with no readback. What
+          comes out is an ordinary <Code>ImageBitmap</Code> at exactly the size
+          it will be drawn — which means the cache, the byte budget and the draw
+          path never learn that any of this happened. The video is a new
+          <em> source</em> of frames, not a new renderer.
+        </P>
+
+        <H3>WebP for the fallback, AVIF for the stills</H3>
+        <P>
+          AVIF is roughly 18% smaller per frame at matched quality, and for the
+          two large X-Ray stills that is free — they are decoded once. For a
+          scrubbed sequence it is the wrong trade: AVIF-with-alpha decodes about
+          three times slower than WebP, and a fast scrub decodes several frames
+          per frame of animation. Bytes are a one-time cost; decode is
+          per-scrub, every scrub.
+        </P>
+      </Section>
+
+      <Section title="Frames are discrete; scroll is not">
+        <P>
+          240 frames across a 460svh section is a new frame roughly every 12px
+          of scroll. That reads as motion at speed and still visibly steps when
+          somebody scrolls a line at a time — which is exactly when they are
+          looking hardest.
+        </P>
+        <P>
+          So the playhead keeps its fractional position and the draw weights the
+          two frames it sits between. One extra{" "}
+          <Code>drawImage</Code>, no extra bytes, and the step becomes a short
+          dissolve. It is not motion blur and only works because the movement
+          between neighbours is small: at ten degrees of rotation apart it would
+          read as a double image rather than as travel, which is half the reason
+          the frame count went up as well.
+        </P>
+        <P>
+          Measured by walking the section in 40px wheel steps and counting
+          distinct pictures: 87 across 88 steps, against 48 for the still
+          sequence over the same walk. That is what{" "}
+          <Code>tests/e2e/sequence.spec.ts</Code> asserts, because
+          &ldquo;smoother&rdquo; is not something the DOM can be asked about.
         </P>
       </Section>
 
@@ -126,8 +199,8 @@ export default function EngineeringPage() {
           An <Code>ImageBitmap</Code> holds uncompressed pixels, and unlike an
           ordinary object it is not reclaimed promptly: the backing memory lives
           outside the JS heap and is released only by{" "}
-          <Code>close()</Code>. Holding all 120 frames at 1440² would pin about
-          a gigabyte.
+          <Code>close()</Code>. Holding all 240 frames at 1440² would pin about
+          two gigabytes.
         </P>
         <P>
           So there is a windowed LRU with explicit eviction, and the unit tests
@@ -179,7 +252,7 @@ export default function EngineeringPage() {
           <Code>color</Code> blend mode, an <Code>overlay</Code> pass to restore
           the gloss, then <Code>destination-in</Code> to clip back to the
           artwork&rsquo;s own alpha. Adding a finish costs an object in a data
-          file rather than 120 more frames.
+          file rather than another 240 frames.
         </P>
         <P>
           The interesting failure: &ldquo;Matte Obsidian&rdquo; first shipped as

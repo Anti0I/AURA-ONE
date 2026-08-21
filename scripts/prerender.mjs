@@ -7,8 +7,14 @@
  * channel survives and that no page chrome, scrollbar or device-pixel-ratio
  * rounding creeps into the output.
  *
+ * Frame count is the one number here worth arguing about. The section scrubs
+ * across roughly 2800px of scroll, so 120 frames put a new one on screen every
+ * 23px — far enough apart that a slow, deliberate scroll reads as stepping
+ * rather than motion. 240 halves that to about 12px, and halves the rotation
+ * phase from 10 degrees per frame to 5.
+ *
  * Output contract (this is the seam a Blender render has to match):
- *   assets-src/out/aura_0001.png … aura_0120.png   square, RGBA, transparent
+ *   assets-src/out/aura_0001.png … aura_0240.png   square, RGBA, transparent
  *   assets-src/out/xray-outer.png                  16:9, shell visible
  *   assets-src/out/xray-inner.png                  16:9, identical camera
  *   src/data/hotspots.json                         normalised label anchors
@@ -36,7 +42,7 @@ const args = new Map(
   }),
 );
 
-const FRAMES = Number(args.get("frames") ?? 120);
+const FRAMES = Number(args.get("frames") ?? 240);
 const SIZE = Number(args.get("size") ?? 1440);
 const XRAY_W = Number(args.get("xrayWidth") ?? 2400);
 const XRAY_H = Math.round((XRAY_W * 9) / 16);

@@ -15,9 +15,10 @@
     "assets:prerender": "node scripts/prerender.mjs",
     "assets:encode": "node scripts/encode-sequence.mjs",
     "assets:noise": "node scripts/make-noise.mjs",
-    "assets:all": "npm run assets:noise && npm run assets:prerender && npm run assets:encode",
+    "assets:all": "npm run assets:noise && npm run assets:prerender && npm run assets:encode && npm run assets:video",
     "audit:budget": "node scripts/audit-budget.mjs",
-    "verify": "npm run typecheck && npm run lint && npm run test"
+    "verify": "npm run typecheck && npm run lint && npm run test",
+    "assets:video": "node scripts/encode-video.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",

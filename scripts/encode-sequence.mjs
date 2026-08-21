@@ -15,7 +15,7 @@
  * scrub into a stuttering one. Bytes are a one-time cost; decode is per-scrub.
  *
  * This script is the seam for a Blender render: drop `aura_0001.png` …
- * `aura_0120.png` into assets-src/out/ and re-run it. Nothing downstream cares
+ * `aura_0240.png` into assets-src/out/ and re-run it. Nothing downstream cares
  * where the pixels came from.
  */
 
@@ -32,24 +32,33 @@ const PUBLIC = path.join(ROOT, "public");
 /** Concurrency: sharp releases the event loop, so this is real parallelism. */
 const POOL = Math.max(2, Math.min(8, (await import("node:os")).cpus().length));
 
+/**
+ * These are the *fallback*. The scrollytelling plays the VP9 stream from
+ * `encode-video.mjs` wherever WebCodecs exists, which is very nearly
+ * everywhere; the stills are what a browser without it gets.
+ *
+ * That changes what they should be. A fallback nobody downloads still costs
+ * repository size and encode time, and it does not have to match the video
+ * frame for frame — so both variants take a coarser stride than the video and
+ * lean on the player's cross-fade between neighbours to cover the difference.
+ */
 const VARIANTS = [
   {
     id: "desktop",
     width: 1440,
-    stride: 1,
+    stride: 2,
     // Tuned by eye against the brushed-metal highlights, which are the first
     // thing to band. alphaQuality stays high: a soft silhouette edge against
     // #09090b is very visible.
-    webp: { quality: 72, alphaQuality: 92, effort: 6, smartSubsample: true },
+    webp: { quality: 64, alphaQuality: 92, effort: 6, smartSubsample: true },
   },
   {
     id: "mobile",
     width: 720,
-    // Every second frame. A phone scrubs the pinned section across roughly a
-    // third of the pixels a desktop does, so 60 frames land at a similar
-    // frames-per-scrolled-pixel density — while halving both the transfer and,
-    // more importantly, the decode work on the weakest hardware.
-    stride: 2,
+    // A phone scrubs the pinned section across roughly a third of the pixels a
+    // desktop does, so a coarser stride still lands at a similar
+    // frames-per-scrolled-pixel density on the weakest hardware in the audience.
+    stride: 4,
     webp: { quality: 68, alphaQuality: 90, effort: 6, smartSubsample: true },
   },
 ];
@@ -95,11 +104,21 @@ if (frames.length === 0) {
 console.log(`Encoding ${frames.length} frames from ${SRC}`);
 
 const meta = await sharp(path.join(SRC, frames[0])).metadata();
+const manifestPath = path.join(PUBLIC, "seq", "manifest.json");
+
+// The video description belongs to encode-video.mjs and is carried through
+// untouched, so the two scripts can be run in either order without one
+// silently deleting the other's work.
+const previous = fs.existsSync(manifestPath)
+  ? JSON.parse(await fsp.readFile(manifestPath, "utf8"))
+  : {};
+
 const manifest = {
   generatedAt: new Date().toISOString(),
   sourceFrameCount: frames.length,
   source: { width: meta.width, height: meta.height },
   variants: {},
+  ...(previous.video ? { video: previous.video } : {}),
   xray: {},
 };
 
@@ -166,13 +185,10 @@ for (const still of XRAY) {
   manifest.xray[still.id] = entries;
 }
 
-await fsp.writeFile(
-  path.join(PUBLIC, "seq", "manifest.json"),
-  JSON.stringify(manifest, null, 2) + "\n",
-);
+await fsp.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
 
 console.log(`\nmanifest -> public/seq/manifest.json`);
-console.log("Next: npm run audit:budget");
+console.log("Next: npm run assets:video");
 
 // A second copy under src/ so the app can `import` the manifest at build time.
 // It is ~1 KB of JSON that the frame player needs before it can request

@@ -22,11 +22,17 @@ const KB = 1024;
 const MB = 1024 * 1024;
 
 const BUDGETS = {
-  // Peak frames are the exploded-view ones: most silhouette, most detail.
-  desktopFrame: 110 * KB,
-  desktopSequence: 5.5 * MB,
-  mobileFrame: 65 * KB,
-  mobileSequence: 1.8 * MB,
+  // The VP9 streams the scrollytelling actually plays. 240 frames each; the
+  // same frames as WebP stills would be 9.09 MB and 2.00 MB.
+  desktopVideo: 3.7 * MB,
+  mobileVideo: 1.5 * MB,
+  // The still sequences are the fallback for browsers without WebCodecs, at a
+  // coarser stride than the video. Peak frames are the exploded-view ones:
+  // most silhouette, most detail.
+  desktopFrame: 100 * KB,
+  desktopSequence: 5.0 * MB,
+  mobileFrame: 64 * KB,
+  mobileSequence: 1.7 * MB,
   // Only the pair the viewport actually loads. The inner still is the
   // expensive one: a thin high-contrast wireframe is the worst case for AVIF.
   xrayPair: 240 * KB,
@@ -71,6 +77,14 @@ if (fs.existsSync(manifestPath)) {
   if (m) {
     check("sequence/mobile total", m.totalBytes, BUDGETS.mobileSequence, "MB");
     check("sequence/mobile peak frame", m.maxFrameBytes, BUDGETS.mobileFrame);
+  }
+
+  const video = manifest.video ?? {};
+  if (video.desktop) {
+    check("video/desktop", video.desktop.bytes, BUDGETS.desktopVideo, "MB");
+  }
+  if (video.mobile) {
+    check("video/mobile", video.mobile.bytes, BUDGETS.mobileVideo, "MB");
   }
 } else {
   skip("frame sequence", "no manifest — run npm run assets:encode");

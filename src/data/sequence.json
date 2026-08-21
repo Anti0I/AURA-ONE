@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-08-20T22:16:54.343Z",
-  "sourceFrameCount": 120,
+  "generatedAt": "2026-08-21T08:07:04.006Z",
+  "sourceFrameCount": 240,
   "source": {
     "width": 1440,
     "height": 1440
@@ -12,10 +12,10 @@
       "basePath": "/seq/desktop",
       "ext": "webp",
       "frameCount": 120,
-      "stride": 1,
-      "totalBytes": 5114040,
-      "maxFrameBytes": 100926,
-      "avgFrameBytes": 42617
+      "stride": 2,
+      "totalBytes": 4764520,
+      "maxFrameBytes": 93368,
+      "avgFrameBytes": 39704
     },
     "mobile": {
       "width": 720,
@@ -23,10 +23,10 @@
       "basePath": "/seq/mobile",
       "ext": "webp",
       "frameCount": 60,
-      "stride": 2,
-      "totalBytes": 1574698,
-      "maxFrameBytes": 57546,
-      "avgFrameBytes": 26245
+      "stride": 4,
+      "totalBytes": 1580158,
+      "maxFrameBytes": 59240,
+      "avgFrameBytes": 26336
     }
   },
   "xray": {
@@ -54,5 +54,31 @@
         "bytes": 63884
       }
     ]
+  },
+  "video": {
+    "desktop": {
+      "url": "/seq/desktop.ivf",
+      "codec": "vp09.00.50.08",
+      "frameCount": 240,
+      "gop": 16,
+      "width": 1440,
+      "height": 1440,
+      "matteX": 1456,
+      "packedWidth": 2896,
+      "packedHeight": 1440,
+      "bytes": 3498668
+    },
+    "mobile": {
+      "url": "/seq/mobile.ivf",
+      "codec": "vp09.00.40.08",
+      "frameCount": 240,
+      "gop": 16,
+      "width": 720,
+      "height": 720,
+      "matteX": 736,
+      "packedWidth": 1456,
+      "packedHeight": 720,
+      "bytes": 1428465
+    }
   }
 }

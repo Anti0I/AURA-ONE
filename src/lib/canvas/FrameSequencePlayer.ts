@@ -6,7 +6,12 @@ import { clamp, damp } from "@/lib/utils";
 import { BitmapLRU } from "./BitmapLRU";
 import { drawTinted } from "./tint";
 import type { Material } from "@/data/materials";
-import { frameUrl, type DecodeResponse, type SequenceVariant } from "@/types/sequence";
+import {
+  frameUrl,
+  type DecodeResponse,
+  type SequenceVariant,
+  type VideoVariant,
+} from "@/types/sequence";
 
 export interface PlayerOptions {
   /** Maximum decoded frames retained. */
@@ -34,6 +39,14 @@ export interface PlayerOptions {
   fill?: number;
   /** Reports telemetry into the transient store. Off for secondary canvases. */
   reportTelemetry?: boolean;
+  /**
+   * VP9 stream to prefer over the still sequence.
+   *
+   * Omit it — as the configurator does — to force the stills. Otherwise the
+   * player opens the video and silently falls back if the browser turns out
+   * not to decode it.
+   */
+  video?: VideoVariant | null;
 }
 
 /**
@@ -87,6 +100,10 @@ export class FrameSequencePlayer {
   private preloadTimeout = 0;
   private onPreloadProgress: ((ratio: number) => void) | null = null;
 
+  /** Frames in the source currently running. */
+  private frames: number;
+  private usingVideo = false;
+
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly variant: SequenceVariant,
@@ -104,31 +121,111 @@ export class FrameSequencePlayer {
       damping: options.damping ?? 22,
       fill: options.fill ?? 0.86,
       reportTelemetry: options.reportTelemetry ?? false,
+      video: options.video ?? null,
     };
 
     this.cache = new BitmapLRU(this.opts.cacheSize, this.opts.maxCacheBytes);
+    // The two sources do not necessarily carry the same number of frames —
+    // mobile ships every third still but the full video — so the scroll-to-
+    // index mapping has to follow whichever one is actually running.
+    this.frames = this.opts.video?.frameCount ?? variant.frameCount;
   }
 
   get frameCount() {
-    return this.variant.frameCount;
+    return this.frames;
+  }
+
+  /** Which source is running, for the inspector. */
+  get source(): "video" | "stills" {
+    return this.usingVideo ? "video" : "stills";
   }
 
   start() {
-    this.worker = new Worker(
-      new URL("./decoder.worker.ts", import.meta.url),
-      { type: "module" },
-    );
-    this.worker.onmessage = (e: MessageEvent<DecodeResponse>) =>
-      this.onDecoded(e.data);
-    this.worker.onerror = (e) => {
-      console.error("[frame-decoder] worker failed:", e.message);
-    };
+    // `VideoDecoder` in the worker is what actually matters, but probing here
+    // avoids spawning a worker at all on a browser that has no chance.
+    this.usingVideo =
+      this.opts.video !== null && typeof VideoDecoder !== "undefined";
+    this.spawn();
 
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(this.canvas);
     this.resize();
 
     this.detach = onFrame((f) => this.tick(f.delta), Priority.RENDER);
+  }
+
+  /**
+   * Starts the worker for the current source.
+   *
+   * Both workers speak the same protocol, so this is the only place that knows
+   * there are two of them. `new URL(...)` has to be a literal on each branch:
+   * the bundler resolves worker entry points statically, and a computed
+   * specifier produces no chunk at all.
+   */
+  private spawn() {
+    const worker = this.usingVideo
+      ? new Worker(new URL("./video.worker.ts", import.meta.url), {
+          type: "module",
+        })
+      : new Worker(new URL("./decoder.worker.ts", import.meta.url), {
+          type: "module",
+        });
+
+    worker.onmessage = (e: MessageEvent<DecodeResponse>) =>
+      this.onDecoded(e.data);
+    worker.onerror = (e) => {
+      console.error("[frames] worker failed:", e.message);
+    };
+
+    this.worker = worker;
+    // Which source won, on the element itself. The dev-only `window.__player`
+    // handle is stripped from production builds, and this is the one fact worth
+    // being able to check in a production build — the still fallback is
+    // invisible when it works and invisible when it breaks.
+    this.canvas.dataset.source = this.usingVideo ? "video" : "stills";
+
+    if (this.usingVideo && this.opts.video) {
+      worker.postMessage({ type: "open", video: this.opts.video });
+    }
+  }
+
+  /**
+   * Swaps the video source for the still sequence.
+   *
+   * The worker reports this rather than the main thread probing for it, because
+   * `VideoDecoder.isConfigSupported` is async and the answer is only ever
+   * needed inside the worker. It resolves in a millisecond or two, well before
+   * anything has been drawn, so the swap is invisible.
+   */
+  private fallBackToStills(reason: string) {
+    if (!this.usingVideo) return;
+    console.warn(`[frames] video source unavailable (${reason}); using stills`);
+
+    this.usingVideo = false;
+    this.worker?.terminate();
+    this.worker = null;
+
+    // Frame indices mean something different in the still sequence, so nothing
+    // already decoded can be reused.
+    this.cache.clear();
+    this.wanted.clear();
+    this.pending = 0;
+    this.failures.clear();
+    this.frames = this.variant.frameCount;
+    this.lastDrawn = -1;
+
+    this.spawn();
+
+    // Re-ask for whatever the boot was waiting on, remapped onto the new count.
+    if (this.preloadResolve) {
+      const total = Math.min(this.preloadTotal, this.frames);
+      this.preloadTotal = total;
+      this.preloadNeeded.clear();
+      for (let i = 0; i < total; i++) {
+        this.preloadNeeded.add(i);
+        this.request(i, i === 0);
+      }
+    }
   }
 
   destroy() {
@@ -183,7 +280,7 @@ export class FrameSequencePlayer {
    * on screen is the number of frames actually in memory.
    */
   preload(count: number, onProgress?: (ratio: number) => void): Promise<void> {
-    this.preloadTotal = Math.min(count, this.variant.frameCount);
+    this.preloadTotal = Math.min(count, this.frames);
     this.preloadNeeded.clear();
     this.failures.clear();
     this.onPreloadProgress = onProgress ?? null;
@@ -275,14 +372,14 @@ export class FrameSequencePlayer {
 
   private frameIndex(progress: number) {
     return clamp(
-      Math.round(progress * (this.variant.frameCount - 1)),
+      Math.round(progress * (this.frames - 1)),
       0,
-      this.variant.frameCount - 1,
+      this.frames - 1,
     );
   }
 
   private request(index: number, urgent: boolean) {
-    if (index < 0 || index >= this.variant.frameCount) return;
+    if (index < 0 || index >= this.frames) return;
     if (this.cache.has(index) || this.wanted.has(index)) return;
 
     this.wanted.add(index);
@@ -298,13 +395,19 @@ export class FrameSequencePlayer {
   }
 
   private onDecoded(message: DecodeResponse) {
+    if (message.type === "unsupported") {
+      this.fallBackToStills(message.reason);
+      return;
+    }
     if (message.generation !== this.generation) return;
     this.wanted.delete(message.index);
     this.pending = Math.max(0, this.pending - 1);
 
     if (message.type === "decoded") {
       this.cache.set(message.index, message.bitmap, message.bytes);
-      if (message.index === this.lastDrawn) this.lastDrawn = -1;
+      // `lastDrawn` is a sub-frame position, so this asks whether the frame
+      // that just arrived is one of the two currently on screen.
+      if (Math.abs(message.index - this.lastDrawn) < 1.001) this.lastDrawn = -1;
     } else {
       // Two goes, then stop waiting on it. A frame that 404s must not hold the
       // boot open, and one that failed transiently deserves a second chance.
@@ -358,14 +461,19 @@ export class FrameSequencePlayer {
         ? damp(this.current, this.target, this.opts.damping, delta)
         : this.target;
 
+    // Sub-frame position, so the draw can cross-fade rather than snap. Rounded
+    // to 1/32 of a frame: fine enough that the blend reads as continuous,
+    // coarse enough that a settled page stops redrawing entirely.
+    const exact = clamp(this.current, 0, 1) * (this.frames - 1);
+    const blended = Math.round(exact * 32) / 32;
     const index = this.frameIndex(this.current);
     this.prefetch(index);
 
-    if (index !== this.lastDrawn) this.draw(index);
+    if (blended !== this.lastDrawn) this.draw(blended);
 
     if (this.opts.reportTelemetry) {
       telemetry.frame = index;
-      telemetry.frameFloat = this.current * (this.variant.frameCount - 1);
+      telemetry.frameFloat = this.current * (this.frames - 1);
       telemetry.storyProgress = this.target;
       telemetry.lruSize = this.cache.size;
       telemetry.lruBytes = this.cache.byteLength;
@@ -398,9 +506,28 @@ export class FrameSequencePlayer {
     this.lastDrawn = -1;
   }
 
-  private draw(index: number) {
+  /**
+   * Draws the playhead position, cross-fading between the two frames it sits
+   * between.
+   *
+   * The frames are discrete and the scroll is not. At 240 frames over a 460svh
+   * section a new frame lands roughly every 12px of scroll, which is close
+   * enough to read as motion at speed and still visibly steps when somebody
+   * scrolls a line at a time — which is exactly when they are looking hardest.
+   * Weighting the two neighbours by the fractional position turns the step into
+   * a short dissolve, for one extra `drawImage` and no extra bytes.
+   *
+   * It is not motion blur and does not pretend to be. It works here because
+   * the movement between adjacent frames is small; at ten degrees of rotation
+   * apart it would read as a double image rather than as travel, which is part
+   * of why the frame count went up as well.
+   */
+  private draw(position: number) {
     const start = performance.now();
-    const bitmap = this.cache.get(index) ?? this.nearest(index);
+
+    const lower = Math.floor(position);
+    const mix = position - lower;
+    const bitmap = this.cache.get(lower) ?? this.nearest(lower);
     if (!bitmap) return;
 
     const { ctx } = this;
@@ -412,7 +539,25 @@ export class FrameSequencePlayer {
       ctx.drawImage(bitmap, this.dest.x, this.dest.y, this.dest.w, this.dest.h);
     }
 
-    this.lastDrawn = index;
+    // Only when the next frame is genuinely resident: blending towards
+    // `nearest()`'s substitute would cross-fade to the wrong picture, which is
+    // more distracting than the step it was meant to hide.
+    //
+    // And never over a tint. That path ends in a `destination-in` pass to clip
+    // the composite back to the silhouette, which would take the first frame
+    // with it — the two techniques both want to own the whole canvas. The tint
+    // is only used by the configurator, where the playhead follows a finger
+    // rather than a damped scroll and the steps are not what you notice.
+    if (mix > 0.02 && !this.tint) {
+      const next = this.cache.get(lower + 1);
+      if (next) {
+        ctx.globalAlpha = mix;
+        ctx.drawImage(next, this.dest.x, this.dest.y, this.dest.w, this.dest.h);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    this.lastDrawn = position;
     // Rolling average: a single slow frame should nudge the readout, not
     // spike it, or the HUD becomes unreadable noise.
     this.drawMs += (performance.now() - start - this.drawMs) * 0.1;

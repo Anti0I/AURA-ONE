@@ -19,11 +19,34 @@ export interface XraySource {
   bytes: number;
 }
 
+/**
+ * The VP9 stream the player uses when WebCodecs is available.
+ *
+ * Colour and matte are packed side by side in one frame, because video has no
+ * alpha channel; `width`/`height` describe the drawable half and `matteX` says
+ * where the other one starts.
+ */
+export interface VideoVariant {
+  url: string;
+  /** Full codec string — `VideoDecoder` rejects anything less specific. */
+  codec: string;
+  frameCount: number;
+  /** Keyframe interval, i.e. the worst-case number of decodes to seek. */
+  gop: number;
+  width: number;
+  height: number;
+  matteX: number;
+  packedWidth: number;
+  packedHeight: number;
+  bytes: number;
+}
+
 export interface SequenceManifest {
   generatedAt: string;
   sourceFrameCount: number;
   source: { width: number; height: number };
   variants: Record<DeviceTier, SequenceVariant>;
+  video: Record<DeviceTier, VideoVariant>;
   xray: Record<"outer" | "inner", XraySource[]>;
 }
 
@@ -45,7 +68,9 @@ export type DecodeRequest =
       /** True for the frame on screen right now — jumps the queue. */
       urgent: boolean;
     }
-  | { type: "drop"; generation: number };
+  | { type: "drop"; generation: number }
+  /** Video worker only: hands it the stream to open. */
+  | { type: "open"; video: VideoVariant };
 
 export type DecodeResponse =
   | {
@@ -55,4 +80,11 @@ export type DecodeResponse =
       bytes: number;
       generation: number;
     }
-  | { type: "failed"; index: number; generation: number; message: string };
+  | { type: "failed"; index: number; generation: number; message: string }
+  /**
+   * Video worker only: this browser cannot decode the stream, so the player
+   * should swap to the still sequence. Reported by the worker rather than
+   * probed on the main thread, because `VideoDecoder.isConfigSupported` is
+   * async and the answer is only ever needed here.
+   */
+  | { type: "unsupported"; reason: string };

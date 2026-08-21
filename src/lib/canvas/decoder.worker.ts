@@ -112,6 +112,10 @@ ctx.onmessage = (event: MessageEvent<DecodeRequest>) => {
     return;
   }
 
+  // `open` belongs to the video worker; the two share a request type so the
+  // player can talk to either without branching.
+  if (message.type !== "decode") return;
+
   generation = message.generation;
   if (queued.has(message.index)) return;
   queued.add(message.index);

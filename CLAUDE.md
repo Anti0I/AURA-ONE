@@ -23,12 +23,12 @@ file is the working knowledge that is expensive to re-derive.
 
 ```bash
 npm run dev              # Next 16 dev server, Turbopack
-npm run verify           # typecheck + lint + 26 unit tests — run before every commit
+npm run verify           # typecheck + lint + 17 unit tests — run before every commit
 npm run build            # production build
 npm run audit:budget     # asset + JS budget gate; needs a build first
-npm run test:e2e         # 36 Playwright tests, desktop + mobile projects
+npm run test:e2e         # 34 Playwright tests, desktop + mobile projects
 npm run test:a11y        # 12 axe / keyboard / reduced-motion tests
-npm run assets:all       # regenerate every asset from primitives (~90 s)
+npm run assets:all       # regenerate every asset from primitives (~4 min; needs ffmpeg)
 node scripts/shoot.mjs   # screenshot the stage at five scroll positions
 ```
 
@@ -64,8 +64,13 @@ These are the ones that cause silent breakage rather than an error.
    encoded. A bitmap costs the same whether or not the detail is visible.
 
 5. **The shell renders neutral grey.** Every finish is a canvas composite at
-   draw time. Baking a colour into the render means re-rendering 120 frames per
+   draw time. Baking a colour into the render means re-rendering 240 frames per
    variant.
+
+   And: **the two frame sources must stay interchangeable.** `video.worker.ts`
+   and `decoder.worker.ts` speak one protocol and both return `ImageBitmap`s
+   at drawn size. Anything that makes the player branch on which is running has
+   put the abstraction back where it started.
 
 6. **New below-the-fold sections are code-split.** Client wrapper +
    `next/dynamic({ ssr: false })` + `LazySection`, following
@@ -98,6 +103,25 @@ the tint. See `src/lib/canvas/tint.ts`.
 
 **A frame count is not a memory budget.** The same 24 frames are 39 MB decoded
 at 640² and 199 MB at 1440². `BitmapLRU` takes both a count and a byte ceiling.
+
+**A `VideoFrame` pins a decoder buffer**, the same way an `ImageBitmap` pins
+heap-external memory. `onFrame` closes in a `finally` on every path,
+including the ones that return early — hold a handful and the decoder stalls
+waiting on its own pool, silently.
+
+**The video scheduler needs to know what is already in flight.** Without it,
+"you asked for that and it is coming" is indistinguishable from "that is behind
+the head, rewind", and it picks the second. The first version reset the decoder
+on every network chunk and produced not one frame, without ever erroring —
+resetting a decoder is perfectly legal. `inFlight` in `video.worker.ts` is
+that distinction; `pickTarget` is the other half, and it prefers the on-screen
+frame, then anything ahead, and only rewinds for look-behind frames when there
+is nothing ahead left to do.
+
+**Lenis owns the scroll position, so tests must not jump.** A programmatic
+`window.scrollTo` gets pulled back towards Lenis's own target, and a test that
+jumps is measuring somewhere other than where it thinks it is. That produced a
+very convincing screenshot of the wrong frame. Drive with `mouse.wheel`.
 
 **Boot progress must be measured, not counted.** A resize bumps the decoder's
 generation and the worker discards everything in flight, so counting replies
@@ -141,13 +165,16 @@ assets-src/device/          procedural Three.js scene + texture generators
 
 scripts/
   prerender.mjs             headless Chromium → PNG frames + X-Ray pair + hotspots.json
-  encode-sequence.mjs       sharp → WebP/AVIF variants + manifests
+  encode-sequence.mjs       sharp → WebP/AVIF fallback variants + manifests
+  encode-video.mjs          ffmpeg → VP9 IVF streams, colour+matte packed
   make-noise.mjs            128² noise tile, 8 grey levels
   audit-budget.mjs          the budget gate
   shoot.mjs                 screenshots at named scroll positions
 
 src/lib/
-  canvas/                   FrameSequencePlayer, decoder.worker, BitmapLRU, tint, Particles
+  canvas/                   FrameSequencePlayer, BitmapLRU, tint, Particles
+                            decoder.worker (WebP stills) + video.worker (WebCodecs)
+                            ivf.ts (container reader), matte.ts (WebGL2 recombine)
   scroll/                   rafBus (the one loop), scrollEngine (Lenis), useSectionProgress
   audio/                    AudioBus, synth (everything is synthesised)
   perf/                     fpsMeter
@@ -172,18 +199,33 @@ one `getBoundingClientRect` per frame during the INPUT phase. Camera framing is
 a per-tier table of hero and story poses: desktop moves the product sideways to
 make room for copy beside it, mobile moves it up because there is no beside.
 
-**Frame decoding.** `fetch` + `createImageBitmap` both run in a worker; the main
-thread never decodes. Two-tier queue with four concurrent requests so the frame
-on screen jumps ahead of its own prefetches. A resize bumps a generation counter
-and the worker drops stale work.
+**Two frame sources, one protocol.** `video.worker.ts` drives `VideoDecoder`
+over a VP9 IVF stream; `decoder.worker.ts` fetches WebP stills. Both return
+`ImageBitmap`s at drawn size, so the LRU, the byte budget and the draw path are
+identical either way. The worker reports `unsupported` and the player swaps —
+the probe is async and the answer is only needed inside the worker. Which one
+won is on the canvas as `data-source`, because production strips
+`window.__player` and the fallback is invisible when it works *and* when it
+breaks.
 
-**Format split.** WebP for the sequence, AVIF for the two X-Ray stills. AVIF is
-~18% smaller per frame but decodes ~3× slower with alpha, and a fast scrub
-decodes several frames per animation frame. Bytes are one-time; decode is
-per-scrub.
+**Why a video, given the whole player exists because video cannot be scrubbed.**
+That is true of the `<video>` element, not of video: `currentTime` is a
+request to seek, `VideoDecoder` is not. Inter-frame prediction then costs
+3.34 MB where the same 240 pictures cost 9.09 MB as stills.
 
-**Mobile variant** takes every second frame at 720px — 60 frames, 1.50 MB. Same
-frames-per-scrolled-pixel density, half the decode work on the weakest hardware.
+**Seeking.** A frame decodes only from the keyframe at or before it, so a
+backwards jump costs up to one GOP (16). Frames passed on the way are
+composited if they were wanted and dropped if not — one decode either way.
+
+**Cross-fade.** The playhead keeps its fractional position and the draw weights
+the two frames it sits between. Never over a tint: that path ends in
+`destination-in`, which would take the first frame with it. Measured at 87
+distinct pictures across 88 wheel steps of 40px, against 48 for the stills.
+
+**Format split.** VP9 for the walkthrough, WebP for its fallback, AVIF for the
+two X-Ray stills. AVIF is ~18% smaller per frame but decodes ~3× slower with
+alpha, and a fast scrub decodes several frames per animation frame. Bytes are
+one-time; decode is per-scrub.
 
 **Scanner.** Two renders from an identical camera, stacked, with a circular
 window into the lower one. The lens is a fixed-size element that is
@@ -200,20 +242,21 @@ sample cannot do without shipping one per variant.
 ## Asset pipeline
 
 ```bash
-npm run assets:all   # noise → prerender (~66 s) → encode (~20 s)
+npm run assets:all   # noise → prerender (~115 s) → encode (~25 s) → video (~90 s)
 ```
 
-The encoded output is committed; the ~100 MB of master PNGs is not.
+The encoded output is committed; the ~700 MB of master PNGs is not.
+`assets:video` is the only step that needs **ffmpeg**.
 
 **Swapping in a Blender render.** The seam is the output contract, not the
 scene. Drop into `assets-src/out/` and run `npm run assets:encode`:
 
-- `aura_0001.png` … `aura_0120.png` — exactly 120, square, PNG RGBA with a
+- `aura_0001.png` … `aura_0240.png` — exactly 240, square, PNG RGBA with a
   transparent background (`Film → Transparent`)
 - `xray-outer.png`, `xray-inner.png` — 16:9, from an **identical camera**
 
 Two constraints carry over: render the shell neutral grey, and keep the phase
-boundaries (1–36 rotate, 37–84 explode, 85–108 push into the core, 109–120
+boundaries (1–72 rotate, 73–168 explode, 169–216 push into the core, 217–240
 reassemble). `src/data/story.ts` caption windows are asserted against them by a
 unit test. If the X-Ray camera moves, regenerate `hotspots.json` with
 `npm run assets:prerender` rather than editing it.
@@ -226,8 +269,8 @@ The scrollytelling cannot be checked by asserting on the DOM — everything that
 matters happens inside a canvas React never re-renders — so those tests read
 pixels: coverage, frame fingerprints, mean luminance for the finish tests.
 
-- `tests/unit/` — vitest. LRU eviction and `close()`, caption timing, the power
-  model against the copy, frame-rate-independent damping.
+- `tests/unit/` — vitest. LRU eviction and `close()`, caption timing,
+  frame-rate-independent damping.
 - `tests/e2e/` — Playwright, `desktop` and `mobile` projects.
 - `tests/a11y/` — axe on the chrome, on every lazy section once mounted, on the
   palette while open, on `/engineering`; plus the skip link, keyboard
@@ -247,13 +290,15 @@ with slack in it is a budget nobody respects.
 
 | Asset | Budget | Current |
 | --- | --- | --- |
-| First-load JS (gzip) | 180 KB | ~162 KB |
-| Desktop sequence | 5.50 MB | 4.88 MB / 120 frames |
-| Mobile sequence | 1.80 MB | 1.50 MB / 60 frames |
-| Peak frame, desktop | 110 KB | 98.6 KB |
+| First-load JS (gzip) | 180 KB | ~163 KB |
+| Desktop video | 3.70 MB | 3.34 MB / 240 frames |
+| Mobile video | 1.50 MB | 1.36 MB / 240 frames |
+| Desktop still fallback | 5.00 MB | 4.54 MB / 120 frames |
+| Mobile still fallback | 1.70 MB | 1.51 MB / 60 frames |
+| Peak frame, desktop | 100 KB | 91.2 KB |
 | X-Ray pair @2400px | 240 KB | 189 KB |
 | Noise tile | 6 KB | 4.1 KB |
-| Audio | 300 KB | 0 — synthesised |
+| Audio files | 0 | 0 — everything is synthesised |
 
 The JS figure excludes Next's `noModule` core-js bundle, which no targeted
 browser downloads.
