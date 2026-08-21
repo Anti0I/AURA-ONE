@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { initScrollEngine, destroyScrollEngine } from "@/lib/scroll/scrollEngine";
 import { readEnvironment } from "@/lib/motion";
+import { exposeTelemetry } from "@/store/transient";
 
 /**
  * One-time client setup.
@@ -14,6 +15,7 @@ import { readEnvironment } from "@/lib/motion";
 export function AppBoot() {
   useEffect(() => {
     initScrollEngine();
+    exposeTelemetry();
 
     const env = readEnvironment();
     // Marks the document for CSS that has to know, and for the Dev Inspector.

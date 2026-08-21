@@ -92,6 +92,16 @@ export class FrameSequencePlayer {
   private pending = 0;
   private drawMs = 0;
 
+  /**
+   * Index of the picture currently on the canvas, or -1 for none.
+   *
+   * Distinct from `lastDrawn`, which is a sub-frame position used to decide
+   * whether a redraw is needed. This is which *picture* the visitor is looking
+   * at, and the difference matters when `nearest()` substitutes: the sub-frame
+   * position moved, the picture did not.
+   */
+  private displayed = -1;
+
   private preloadResolve: (() => void) | null = null;
   private preloadTotal = 0;
   /** Frames the boot is still waiting on. Membership, not a counter. */
@@ -249,6 +259,9 @@ export class FrameSequencePlayer {
   /** Jumps the playhead without damping — used on mount and on phase skips. */
   jumpTo(p: number) {
     this.target = this.current = clamp(p, 0, 1);
+    // A deliberate jump is not a dropped frame. Forgetting the last picture
+    // stops it being reported as one.
+    this.displayed = -1;
   }
 
   /**
@@ -404,6 +417,13 @@ export class FrameSequencePlayer {
     this.pending = Math.max(0, this.pending - 1);
 
     if (message.type === "decoded") {
+      // Arrived after the playhead had already left it behind: decoded,
+      // composited and transferred for nothing, and about to evict something
+      // still wanted. Counted rather than dropped — dropping it here would
+      // waste the work twice.
+      if (this.keep.size > 0 && !this.keep.has(message.index)) {
+        telemetry.decodeWaste++;
+      }
       this.cache.set(message.index, message.bitmap, message.bytes);
       // `lastDrawn` is a sub-frame position, so this asks whether the frame
       // that just arrived is one of the two currently on screen.
@@ -527,8 +547,14 @@ export class FrameSequencePlayer {
 
     const lower = Math.floor(position);
     const mix = position - lower;
-    const bitmap = this.cache.get(lower) ?? this.nearest(lower);
-    if (!bitmap) return;
+    let shown = lower;
+    let bitmap = this.cache.get(lower);
+    if (!bitmap) {
+      shown = this.nearest(lower);
+      if (shown < 0) return;
+      bitmap = this.cache.peek(shown);
+      if (!bitmap) return;
+    }
 
     const { ctx } = this;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -558,25 +584,41 @@ export class FrameSequencePlayer {
     }
 
     this.lastDrawn = position;
+
+    // Scrub quality, measured on what the visitor actually saw. A continuous
+    // scrub steps one picture at a time; one that falls behind the scroll and
+    // then catches up reports the size of the lump it jumped.
+    if (shown !== this.displayed) {
+      if (this.displayed >= 0) {
+        const gap = Math.abs(shown - this.displayed);
+        if (gap > telemetry.frameGapMax) telemetry.frameGapMax = gap;
+        telemetry.frameGapSum += gap;
+        telemetry.framesDrawn++;
+      }
+      this.displayed = shown;
+    }
+
     // Rolling average: a single slow frame should nudge the readout, not
     // spike it, or the HUD becomes unreadable noise.
     this.drawMs += (performance.now() - start - this.drawMs) * 0.1;
   }
 
   /**
-   * Nearest cached frame either side of `index`.
+   * Index of the nearest cached frame either side of `index`, or -1.
    *
    * This is what keeps a fast scrub looking continuous rather than blinking:
    * showing a neighbouring frame for a few milliseconds is invisible, showing
    * an empty canvas is not.
+   *
+   * Returns the index rather than the bitmap because the caller has to report
+   * which picture reached the canvas, and a substitute is still a picture the
+   * visitor saw.
    */
-  private nearest(index: number): ImageBitmap | undefined {
+  private nearest(index: number): number {
     for (let offset = 1; offset <= 12; offset++) {
-      const before = this.cache.peek(index - offset);
-      if (before) return before;
-      const after = this.cache.peek(index + offset);
-      if (after) return after;
+      if (this.cache.peek(index - offset)) return index - offset;
+      if (this.cache.peek(index + offset)) return index + offset;
     }
-    return undefined;
+    return -1;
   }
 }

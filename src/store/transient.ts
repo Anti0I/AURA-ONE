@@ -28,6 +28,28 @@ export interface Telemetry {
   lruBytes: number;
   /** Frames requested from the worker but not yet decoded. */
   decodeQueue: number;
+  /**
+   * Largest jump, in frames, between two consecutively *displayed* pictures.
+   *
+   * This is the number behind "it skips". A scrub that stays continuous holds
+   * this at 1; one that falls behind the scroll and then catches up in a lump
+   * reports the size of the lump. Measured on what actually reached the canvas,
+   * substitutes from `nearest()` included — the substitute is what the visitor
+   * sees, so it is what has to be counted.
+   */
+  frameGapMax: number;
+  /** Total distance travelled in drawn frames, for a mean alongside the max. */
+  frameGapSum: number;
+  /** Number of times a different picture reached the canvas. */
+  framesDrawn: number;
+  /**
+   * Frames that arrived after the playhead had already left them behind.
+   *
+   * Decoded, composited, transferred and cached for nothing — and worse, they
+   * evict frames the playhead is about to reach. A healthy scrub keeps this
+   * near zero; a scheduler working against the scroll makes it climb.
+   */
+  decodeWaste: number;
   pointerX: number;
   pointerY: number;
   /** null where the browser does not expose it (everything but Chromium). */
@@ -47,6 +69,10 @@ export const telemetry: Telemetry = {
   lruSize: 0,
   lruBytes: 0,
   decodeQueue: 0,
+  frameGapMax: 0,
+  frameGapSum: 0,
+  framesDrawn: 0,
+  decodeWaste: 0,
   pointerX: 0,
   pointerY: 0,
   heapMB: null,
@@ -54,6 +80,38 @@ export const telemetry: Telemetry = {
   canvasHeight: 0,
   dpr: 1,
 };
+
+/**
+ * Clears the scrub-quality watermarks.
+ *
+ * They are watermarks rather than rates, so a measurement has to say when it
+ * started. Without this every reading carries the boot, where a gap of thirty
+ * is normal and meaningless because the sequence has not arrived yet.
+ */
+export function resetFrameStats() {
+  telemetry.frameGapMax = 0;
+  telemetry.frameGapSum = 0;
+  telemetry.framesDrawn = 0;
+  telemetry.decodeWaste = 0;
+}
+
+/**
+ * Publishes the live telemetry object on `window`, but only for `?debug=1`.
+ *
+ * Nothing on the page needs this: the Dev Inspector imports `telemetry`
+ * directly. A test does. `window.__player` is stripped from production builds
+ * and CI builds production, which left the suite with no way to assert on
+ * anything happening inside the canvas — and "it skips frames" is not a claim
+ * the DOM can answer. Gating on a search parameter keeps a normal visit exactly
+ * as it was, at the cost of one string comparison at boot.
+ */
+export function exposeTelemetry() {
+  if (typeof window === "undefined") return;
+  if (!new URLSearchParams(window.location.search).has("debug")) return;
+  const w = window as unknown as Record<string, unknown>;
+  w.__telemetry = telemetry;
+  w.__resetFrameStats = resetFrameStats;
+}
 
 const SAMPLE_INTERVAL = 0.1; // seconds — 10 Hz
 
