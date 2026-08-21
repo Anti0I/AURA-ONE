@@ -213,7 +213,11 @@ export function XraySection() {
         // together for the section to read as a diagram rather than a poster.
         className={
           "relative mx-auto aspect-video w-full max-w-[min(100%,calc(68svh*16/9))] " +
-          "touch-none select-none overflow-hidden rounded-tile border border-line bg-surface"
+          // `pan-y`, not `none`. This frame is up to 68svh tall, so on a phone a
+          // vertical swipe lands inside it far more often than not — and with
+          // touch-action disabled entirely that swipe did nothing at all and the
+          // page simply refused to move. Horizontal drags still aim the scanner.
+          "touch-pan-y select-none overflow-hidden rounded-tile border border-line bg-surface"
         }
       >
         {/* Base layer: the sealed product. */}

@@ -6,6 +6,7 @@ import { prefersReducedMotion } from "@/lib/motion";
 
 let lenis: Lenis | null = null;
 let detach: (() => void) | null = null;
+let heightObserver: ResizeObserver | null = null;
 let initialised = false;
 
 /**
@@ -46,15 +47,48 @@ export function initScrollEngine(): Lenis | null {
   });
 
   detach = onFrame((f) => lenis?.raf(f.now), Priority.INPUT);
+
+  // Lenis caches `limit = scrollHeight - innerHeight` and hard-clamps every
+  // wheel gesture to it. Its own auto-resize watches `document.documentElement`
+  // — which is also the element the preloader parks `overflow: hidden` on
+  // while it holds the page, and which stops being a reliable proxy for content
+  // height while that is set. The failure is silent and specific: the wheel
+  // stops at the stale limit while dragging the native scrollbar still reaches
+  // the true bottom, because the scrollbar bypasses Lenis entirely.
+  //
+  // This page grows a lot after Lenis is constructed — three lazy sections
+  // mount from placeholders that are shorter than the real thing — so the
+  // measurement has to be driven from something that actually tracks content.
+  // `document.body` does.
+  if (typeof ResizeObserver !== "undefined") {
+    heightObserver = new ResizeObserver(() => lenis?.resize());
+    heightObserver.observe(document.body);
+  }
+
   return lenis;
 }
 
 export function destroyScrollEngine() {
   detach?.();
+  heightObserver?.disconnect();
   lenis?.destroy();
   detach = null;
+  heightObserver = null;
   lenis = null;
   initialised = false;
+}
+
+/**
+ * Re-measures the document.
+ *
+ * The observer above catches everything that changes `body`'s box, but a couple
+ * of moments are worth being explicit about rather than waiting a frame for:
+ * unlocking the page after boot, and swapping a lazy placeholder for the real
+ * section. Cheap, idempotent, and it makes the dependency legible at the call
+ * site instead of hiding it in a global.
+ */
+export function refreshScroll() {
+  lenis?.resize();
 }
 
 export function getLenis() {

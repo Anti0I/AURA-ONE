@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { refreshScroll } from "@/lib/scroll/scrollEngine";
 
 /**
  * Mounts its children when the section is close to the viewport.
@@ -33,6 +34,15 @@ export function LazySection({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
+
+  // `minHeight` keeps the swap from shifting anything below it, but it does not
+  // make the swap free: the real section is taller than its placeholder, so the
+  // document grows here and the smooth-scroll engine's cached limit has to be
+  // told. Without this the page stops scrolling by wheel somewhere around the
+  // last lazy section.
+  useEffect(() => {
+    if (mounted) refreshScroll();
+  }, [mounted]);
 
   useEffect(() => {
     const el = ref.current;

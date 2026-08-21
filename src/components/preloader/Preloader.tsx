@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAppStore } from "@/store/useAppStore";
 import { PRODUCT } from "@/data/specs";
+import { refreshScroll } from "@/lib/scroll/scrollEngine";
 import { cn } from "@/lib/utils";
 
 /**
@@ -32,6 +33,10 @@ export function Preloader() {
   // an empty canvas, which looks like a bug rather than like loading.
   useEffect(() => {
     document.documentElement.style.overflow = booted ? "" : "hidden";
+    // The scroll engine measured the document while it was locked. Re-measure
+    // on the way out, or its first wheel gesture is clamped against whatever
+    // the page looked like behind the overlay.
+    if (booted) refreshScroll();
     return () => {
       document.documentElement.style.overflow = "";
     };

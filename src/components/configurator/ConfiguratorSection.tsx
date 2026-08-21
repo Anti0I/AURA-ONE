@@ -154,7 +154,10 @@ export function ConfiguratorSection() {
           ref={frameRef}
           // Height-capped like the scanner: a 4:3 frame at full width swallows
           // the viewport and pushes the finish list off screen.
-          className="relative mx-auto aspect-[4/3] max-h-[62svh] w-full cursor-grab touch-none select-none overflow-hidden rounded-tile border border-line bg-surface active:cursor-grabbing"
+          // `touch-pan-y`: the spin is horizontal, so vertical swipes belong to
+          // the page. With `touch-none` the last section of the site became a
+          // 62svh dead zone that swallowed every scroll gesture aimed at it.
+          className="relative mx-auto aspect-[4/3] max-h-[62svh] w-full cursor-grab touch-pan-y select-none overflow-hidden rounded-tile border border-line bg-surface active:cursor-grabbing"
         >
           <canvas
             ref={canvasRef}
