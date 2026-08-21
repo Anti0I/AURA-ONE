@@ -14,7 +14,10 @@ jobs:
   verify:
     name: Verify
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The e2e suite decodes VP9 and renders three.js through software WebGL on a
+    # two-core runner. It takes ~6 minutes locally and there is no reason to
+    # expect better there.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -36,10 +39,10 @@ jobs:
       - name: Unit tests
         run: npm run test
 
-      # The encoded frame sequence is committed, so the build needs no headless
-      # render. `npm run assets:all` regenerates it from scratch when the scene
-      # changes; it is deliberately not part of CI, because a 66-second
-      # SwiftShader render on every push buys nothing.
+      # The encoded video and the still fallback are both committed, so the build
+      # needs neither a headless render nor ffmpeg. `npm run assets:all`
+      # regenerates them when the scene changes; it is deliberately not part of
+      # CI, because a four-minute SwiftShader render on every push buys nothing.
       - name: Build
         run: npm run build
 
