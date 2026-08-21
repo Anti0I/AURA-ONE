@@ -946,24 +946,31 @@ export class FrameSequencePlayer {
     // actually asked for, so the search only has to reach that far — and it
     // has to reach *at least* that far, or a coarse scrub shows a blank canvas
     // instead of a coarse one.
-    // Asymmetric, and that is the point.
+    // Asymmetric, and asymmetric *about the direction of travel*.
     //
-    // Backwards the search has to cover how far behind the pipeline actually
+    // Against the travel the search has to cover how far behind the pipeline
     // is, or the playhead is never near anything that has arrived and the
-    // canvas holds its last picture instead. Forwards it must not: the player
-    // aims ahead of the playhead on purpose, so the frames arriving early are
-    // frames the scroll has not reached yet, and showing one is showing the
-    // future. Measured with a symmetric search: the playhead at 162 and the
-    // canvas showing 220, a jump of 148 forwards followed by the picture
-    // sitting still while the scroll caught up with it. A slightly stale
-    // picture reads as weight; a premature one reads as a glitch.
-    const back = Math.max(12, this.stride() + this.lead());
-    const forward = Math.max(2, this.stride());
-    for (let offset = 1; offset <= back; offset++) {
-      if (this.cache.peek(index - offset)) return index - offset;
-      if (offset <= forward && this.cache.peek(index + offset)) {
-        return index + offset;
-      }
+    // canvas holds its last picture. With the travel it must not: the player
+    // aims ahead on purpose, so frames arriving early are frames the scroll has
+    // not reached, and showing one is showing the future. Measured with a
+    // symmetric search: the playhead at 162 and the canvas showing 220 — a jump
+    // of 148 forwards, then the picture sitting still while the scroll caught
+    // up with it. A slightly stale picture reads as weight; a premature one
+    // reads as a glitch.
+    //
+    // Which side is "stale" flips when the scroll reverses, and getting that
+    // wrong is not symmetric either: scrolling back up is the expensive
+    // direction — a frame decodes only from the keyframe at or before it — so
+    // it is the direction with the most catching up to do and the least margin
+    // for looking the wrong way.
+    const stale = -Math.sign(this.direction || 1);
+    const far = Math.max(12, this.stride() + this.lead());
+    const near = Math.max(2, this.stride());
+    for (let offset = 1; offset <= far; offset++) {
+      const behind = index + stale * offset;
+      if (this.cache.peek(behind)) return behind;
+      const forward = index - stale * offset;
+      if (offset <= near && this.cache.peek(forward)) return forward;
     }
     return -1;
   }

@@ -3,6 +3,7 @@ import Link from "next/link";
 import manifest from "@/data/sequence.json";
 import { PRODUCT } from "@/data/specs";
 import { AUTHOR } from "@/data/author";
+import { BUDGETS, asKB, asMB } from "@/data/budgets.mjs";
 import type { SequenceManifest } from "@/types/sequence";
 
 const SEQUENCE = manifest as SequenceManifest;
@@ -194,6 +195,121 @@ export default function EngineeringPage() {
         </P>
       </Section>
 
+      <Section title="The scrub that could not keep up">
+        <P>
+          The report was specific: scroll the first section fast and the
+          animation freezes, then jumps about twenty frames. The first thing
+          worth doing with a claim like that is turning it into a number, so the
+          player now counts what it draws — how far the scroll dragged the
+          playhead, and how much of that distance the picture actually covered.
+          On the code as it stood: <Numeric>0.10</Numeric>. The canvas moved
+          twenty-four frames while the scroll crossed two hundred and
+          thirty-nine.
+        </P>
+
+        <H3>The decoder was never the problem</H3>
+        <P>
+          The obvious suspect is the codec, so it went first: decoding all 240
+          packed frames takes <Numeric>1.50 s</Numeric> single-threaded and{" "}
+          <Numeric>0.40 s</Numeric> across cores — 160 and 604 frames per
+          second against the 100 to 150 a hard wheel flick needs. Four times
+          more than enough. Whatever was wrong was around the decoder, not
+          inside it, and every hour that would have gone into the encoder was
+          saved by twenty seconds of measurement.
+        </P>
+
+        <H3>Five faults, none of which errored</H3>
+        <P>
+          The container reader concatenated every network chunk onto a growing
+          buffer and handed out views into it, so each frame kept its whole
+          accumulator alive: <Numeric>181 MB</Numeric> retained and{" "}
+          <Numeric>359 MB</Numeric> copied for a 3.34 MB stream, on the worker
+          thread, during the hero.
+        </P>
+        <P>
+          A decoder&rsquo;s queue is not a buffer, it is latency — a frame
+          requested now comes out after everything already queued. Depth
+          measured in frames hides that: twenty-four frames is 40 ms where a
+          composite costs 1.65 ms and 900 ms where it costs 38, and both of
+          those are real machines.
+        </P>
+        <P>
+          The decode head runs ahead of the playhead on purpose, which means the
+          frame on screen is usually <em>behind</em> it — and chasing that frame
+          means resetting the decoder, which drops everything in flight. Then
+          the scroll moves and it happens again. Measured as half a second in
+          which the decoder ran flat out and delivered three frames.
+        </P>
+        <P>
+          Requests were also aimed where the playhead had been rather than where
+          it was going. A frame asked for at N arrives some time later, by which
+          point the scroll is sixty frames further on — well outside the range
+          the draw will substitute across, so the canvas had nothing to show and
+          held its last picture.
+        </P>
+        <P>
+          And the window telling the worker what was still wanted was posted{" "}
+          <em>after</em> the requests it authorised. Messages are delivered in
+          order, so the worker measured each request against the window it had a
+          tick earlier and silently dropped exactly the frames that had just
+          come into range. The player counted them as outstanding and never
+          asked again: the playhead sat on frame 163 with the canvas showing
+          149 and twenty-seven requests pending, permanently.
+        </P>
+
+        <H3>Two numbers, both measured at runtime</H3>
+        <P>
+          What replaced all of it is small. The player tracks how many frames a
+          second the whole chain delivers and how long one round trip takes.
+          Below the delivery rate it asks for every frame and nothing changes.
+          Above it, the timeline is sampled to match, and each request aims
+          ahead of the playhead by speed times latency, so the frame lands{" "}
+          <em>at</em> the scroll instead of behind it.
+        </P>
+        <P>
+          Neither can be a constant. The same build composites a frame in{" "}
+          <Numeric>0.1 ms</Numeric> on a discrete GPU and{" "}
+          <Numeric>32 ms</Numeric> on a software rasteriser — a factor of three
+          hundred — and a figure chosen for either is wrong on the other. Keeping
+          latency as a <em>time</em> rather than as a distance in frames matters
+          for the same reason: a distance is only true at one scroll speed, so
+          it has to be relearnt exactly when it is needed and has not converged
+          yet. A time is a property of the machine, learnt during ordinary
+          scrolling and already right when a flick begins.
+        </P>
+        <P>
+          The fraction of the journey the picture covers went from{" "}
+          <Numeric>0.10</Numeric> to <Numeric>1.00</Numeric>, on a GPU and on a
+          software rasteriser alike, and the largest freeze from 148 frames to
+          under 48. A slow machine now draws fewer, wider-spaced pictures and
+          still follows the scroll end to end, which is the honest answer at a
+          speed where nothing could draw all of them.
+        </P>
+      </Section>
+
+      <Section title="Nothing animates off screen">
+        <P>
+          Three sections here animate on a loop with no natural end: the scanner
+          sweeps, the configurator spins, the walkthrough holds a damped
+          playhead. Written the obvious way, every one of them keeps drawing at
+          the display&rsquo;s refresh rate for the rest of the session — several
+          screens above the visitor, and in a background tab.
+        </P>
+        <P>
+          It is invisible in every way except the one that matters, so it is
+          worth measuring rather than reasoning about. Parked at the footer with
+          every section mounted and none of them on screen, for three seconds:{" "}
+          <Numeric>720</Numeric> full-bleed canvas clears and{" "}
+          <Numeric>720</Numeric> layout reads, against none afterwards.{" "}
+          <Code>content-visibility: auto</Code> does not help — it skips
+          rendering the section, not the frame loop.
+        </P>
+        <P>
+          Having written that bug three times, the gate now lives in one place
+          and every loop goes through it.
+        </P>
+      </Section>
+
       <Section title="Memory">
         <P>
           An <Code>ImageBitmap</Code> holds uncompressed pixels, and unlike an
@@ -217,6 +333,19 @@ export default function EngineeringPage() {
           dangerous on a large one — and it is the second one you hear about,
           from somebody else&rsquo;s machine. The cache now takes a byte budget
           alongside the count.
+        </P>
+        <P>
+          Taking one was not the same as honouring one. The cache refused to
+          evict anything inside the prefetch window — reasonably, since
+          undershooting it guarantees a blank frame mid-scrub — which meant that
+          whenever the window was larger than the budget could hold, the budget
+          simply never applied. At 1440² that is 7.91 MB a frame and
+          twenty-nine frames in the window: measured at{" "}
+          <Numeric>189.8 MB</Numeric> against a stated ceiling of 160. A window
+          expressed in frames and a ceiling expressed in bytes agree at exactly
+          one decode size, and it is not the one on your own screen. The window
+          is now sized from what the budget affords, and the budget wins if it
+          ever comes to it.
         </P>
         <P>
           Frames are also decoded to the size they will be <em>drawn</em>, not
@@ -374,14 +503,37 @@ export default function EngineeringPage() {
         </P>
         <Figures
           rows={[
-            ["First-load JS", "≤ 180 KB gzip"],
-            ["Desktop sequence", `≤ 5.50 MB (now ${mb(desktop.totalBytes)})`],
-            ["Mobile sequence", `≤ 1.80 MB (now ${mb(mobile.totalBytes)})`],
-            ["X-Ray pair", "≤ 240 KB"],
-            ["Noise tile", "≤ 6 KB"],
+            ["First-load JS", `≤ ${asKB(BUDGETS.firstLoadJs)} gzip`],
+            ["All JS chunks", `≤ ${asKB(BUDGETS.totalJs)} gzip`],
+            [
+              "Desktop video",
+              `≤ ${asMB(BUDGETS.desktopVideo)} (now ${mb(SEQUENCE.video.desktop.bytes)})`,
+            ],
+            [
+              "Mobile video",
+              `≤ ${asMB(BUDGETS.mobileVideo)} (now ${mb(SEQUENCE.video.mobile.bytes)})`,
+            ],
+            [
+              "Desktop still fallback",
+              `≤ ${asMB(BUDGETS.desktopSequence)} (now ${mb(desktop.totalBytes)})`,
+            ],
+            [
+              "Mobile still fallback",
+              `≤ ${asMB(BUDGETS.mobileSequence)} (now ${mb(mobile.totalBytes)})`,
+            ],
+            ["X-Ray pair", `≤ ${asKB(BUDGETS.xrayPair)}`],
+            ["Noise tile", `≤ ${asKB(BUDGETS.noise)}`],
             ["Audio", "0 bytes — synthesised"],
           ]}
         />
+        <P>
+          Every figure above is read from{" "}
+          <Code>src/data/budgets.mjs</Code>, which is also the file the CI gate
+          reads. This table used to be written out by hand, and it had drifted:
+          it advertised a 5.50 MB sequence ceiling against a gate set at 5.00. A
+          page contradicting its own build is the worst failure this project can
+          have, and the fix for it is not proofreading.
+        </P>
       </Section>
 
       <footer className="relative mt-20 border-t border-line pt-8">
@@ -435,6 +587,15 @@ function H3({ children }: { children: React.ReactNode }) {
 function P({ children }: { children: React.ReactNode }) {
   return (
     <p className="mt-4 max-w-[68ch] leading-relaxed text-ink-dim">{children}</p>
+  );
+}
+
+/** An inline figure. Tabular numerals, so a paragraph of them stays even. */
+function Numeric({ children }: { children: React.ReactNode }) {
+  return (
+    <span data-numeric className="text-ink">
+      {children}
+    </span>
   );
 }
 

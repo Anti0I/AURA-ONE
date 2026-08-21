@@ -315,7 +315,15 @@ function pickTarget(): number {
   for (const index of wanted) {
     if (index >= reader.frames.length || inFlight.has(index)) continue;
     if (index > head && (ahead < 0 || index < ahead)) ahead = index;
-    if (index <= head && (behind < 0 || index > behind)) behind = index;
+    // The *lowest* one behind, not the nearest. Reaching anything behind the
+    // head costs a rewind, and a scroll running backwards asks for a whole
+    // ladder of them: taking the nearest one first means the next request is
+    // behind the new head as well, and every frame costs its own reset. Going
+    // to the bottom of the ladder instead turns the same work into one rewind
+    // and one forward sweep that passes through all of them. They arrive in the
+    // opposite order to the one the playhead wants, which does not matter —
+    // they land in the cache either way.
+    if (index <= head && (behind < 0 || index < behind)) behind = index;
   }
 
   const urgentUsable =
@@ -367,7 +375,8 @@ function pump() {
   // ahead, jumping there skips everything in between — but only pays once the
   // skip is bigger than the reset.
   const key = keyframeFor(target);
-  if (target <= head) {
+  const sweeping = target <= head;
+  if (sweeping) {
     // Behind the head. No choice: a frame only decodes from the keyframe at or
     // before it.
     rewind(target);
@@ -394,7 +403,13 @@ function pump() {
   // — and from then on every frame the playhead asks for is *behind* the head,
   // so every tick ends in a rewind and nothing is ever delivered.
   let furthest = target;
-  const limit = target + LEAD;
+  // After a rewind the head is at the bottom of everything still wanted, so
+  // the sweep should run all the way up through it — that rewind has already
+  // been paid for and stopping short of the ladder means paying for another
+  // one. Going forwards the lead stays bounded, because there the head is
+  // ahead of the playhead and every frame it overruns is one the playhead may
+  // have to rewind for later.
+  const limit = sweeping ? reader.frames.length : target + LEAD;
   for (const index of wanted) {
     if (index < reader.frames.length && index > furthest && index <= limit) {
       furthest = index;

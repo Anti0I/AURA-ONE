@@ -12,7 +12,7 @@ export const metadata: Metadata = {
     template: `%s — ${PRODUCT.name}`,
   },
   description:
-    "A neural audio wearable that runs inference on-device. Built as a demonstration of scroll-driven canvas rendering, in-browser AI and zero-dependency motion engineering.",
+    "A neural audio wearable that runs inference on-device. Built as a demonstration of scroll-driven canvas rendering, procedural asset generation and zero-dependency motion engineering.",
   applicationName: PRODUCT.name,
   authors: [{ name: "Natan Koralewski" }],
   openGraph: {

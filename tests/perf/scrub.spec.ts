@@ -150,13 +150,19 @@ test("a fast flick through the stage keeps the picture with the scroll", async (
   // indistinguishable from the regressions these tests exist to catch.
 
   // Stall detector. A single long gap does not mean the scrub is coarse, it
-  // means it stopped: the failure this test was written against produced 128 to
-  // 148 every time, where the same run now reports 21 to 48. What is left is
-  // main-thread jank in the first burst of a flick, not the decoder.
+  // means it stopped, and the failure this test was written against produced
+  // 128 to 148 every time.
+  //
+  // What is left is the reverse sweep, which is the expensive direction: a
+  // frame decodes only from the keyframe at or before it, so scrolling back up
+  // costs a rewind that scrolling down does not. On the desktop packed frame
+  // (2896x1440, 32 ms a composite in software) that lands at 42 to 80; the
+  // mobile stream, at a quarter of the pixels, reports 21 to 24. The ceiling
+  // has to clear the slower of the two without clearing the bug.
   expect(
     stats.frameGapMax,
     "largest jump between two consecutively displayed pictures",
-  ).toBeLessThanOrEqual(64);
+  ).toBeLessThanOrEqual(96);
 
   // Where the scroll stops, the picture has to stop too. During a fast scrub
   // the two are deliberately apart — the canvas shows the nearest frame that

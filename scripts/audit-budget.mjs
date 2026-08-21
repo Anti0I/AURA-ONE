@@ -14,6 +14,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
+import { BUDGETS } from "../src/data/budgets.mjs";
 
 const ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PUBLIC = path.join(ROOT, "public");
@@ -21,35 +22,8 @@ const PUBLIC = path.join(ROOT, "public");
 const KB = 1024;
 const MB = 1024 * 1024;
 
-const BUDGETS = {
-  // The VP9 streams the scrollytelling actually plays. 240 frames each; the
-  // same frames as WebP stills would be 9.09 MB and 2.00 MB.
-  desktopVideo: 3.7 * MB,
-  mobileVideo: 1.5 * MB,
-  // The still sequences are the fallback for browsers without WebCodecs, at a
-  // coarser stride than the video. Peak frames are the exploded-view ones:
-  // most silhouette, most detail.
-  desktopFrame: 100 * KB,
-  desktopSequence: 5.0 * MB,
-  mobileFrame: 64 * KB,
-  mobileSequence: 1.7 * MB,
-  // Only the pair the viewport actually loads. The inner still is the
-  // expensive one: a thin high-contrast wireframe is the worst case for AVIF.
-  xrayPair: 240 * KB,
-  noise: 6 * KB,
-  /** First-load JS for "/", gzipped, excluding the frame sequence. */
-  firstLoadJs: 180 * KB,
-  /**
-   * Every JS chunk the build produces, gzipped.
-   *
-   * First-load alone stopped being the whole story once the configurator
-   * started pulling in three.js: ~135 KB gzip that correctly does not count
-   * against first load, because it is fetched when that section mounts. Real
-   * weight hiding in a lazy chunk is still real weight, and a budget that only
-   * watches the first load is an invitation to move things out of it.
-   */
-  totalJs: 420 * KB,
-};
+// Declared in src/data/budgets.mjs, which /engineering reads too — the
+// gate and the page that describes it must not be able to disagree.
 
 const results = [];
 let failed = 0;

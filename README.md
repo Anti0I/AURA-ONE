@@ -45,19 +45,23 @@ That runs four steps, which can also be run individually:
 npm run verify
 ```
 
-Typecheck, lint and 17 unit tests. The full pipeline, as CI runs it:
+Typecheck, lint and 25 unit tests. The full pipeline, as CI runs it:
 
 ```bash
-npm run build && npm run audit:budget && npm run test:e2e && npm run test:a11y
+npm run build && npm run audit:budget && npm run test:e2e && npm run test:a11y && npm run test:perf
 ```
 
 - **36 end-to-end tests** across desktop and mobile. The scrollytelling cannot
   be checked by asserting on the DOM — everything that matters happens inside a
   canvas React never re-renders — so those tests read pixels: coverage, frame
   fingerprints, and mean luminance for the finish tests.
-- **5 accessibility tests**: an axe audit of the chrome, of every lazy section
+- **12 accessibility tests**: an axe audit of the chrome, of every lazy section
   once mounted, and of the command palette while open, plus the skip link,
   keyboard reachability, and the reduced-motion path.
+- **2 scrub-performance tests**, in their own config at one worker. A
+  performance number that changes by a factor of four depending on what else is
+  running is not a number: measured beside the rest of the suite this reported a
+  largest frame gap of 169, and 21 to 48 on its own.
 - **`audit:budget`** fails the build when the site outgrows what it agreed to.
 
 There is no Lighthouse job. Its stable categories are already covered by the axe
@@ -77,14 +81,14 @@ with slack in it is a budget nobody respects.
 
 | Asset | Budget | Current |
 | --- | --- | --- |
-| First-load JS (gzip) | 180 KB | 163 KB |
+| First-load JS (gzip) | 180 KB | 164 KB |
 | Desktop video | 3.70 MB | 3.34 MB · 240 frames |
 | Mobile video | 1.50 MB | 1.36 MB · 240 frames |
 | Desktop still fallback | 5.00 MB | 4.54 MB · 120 frames |
 | Mobile still fallback | 1.70 MB | 1.51 MB · 60 frames |
 | Peak frame, desktop | 100 KB | 91.2 KB |
-| All JS chunks (gzip) | 420 KB | 358 KB |
-| X-Ray pair @2400px | 240 KB | 189 KB |
+| All JS chunks (gzip) | 420 KB | 360 KB |
+| X-Ray pair @2400px | 240 KB | 189.3 KB |
 | Noise tile | 6 KB | 4.1 KB |
 | Audio files | 0 | 0 — everything is synthesised |
 
@@ -121,10 +125,28 @@ smaller per frame, but AVIF-with-alpha decodes about 3× slower, and a scrub
 decodes several frames per frame of animation. Bytes are a one-time cost;
 decode is per-scrub.
 
+**A scheduler that measures itself.** The player tracks two numbers about the
+machine it is running on: how many frames a second the whole chain actually
+delivers, and how long one round trip takes. It samples the timeline at a stride
+that matches the first, and aims each request `speed x latency` frames ahead of
+the playhead so the frame arrives *at* the scroll rather than behind it. Neither
+can be a constant — the same build composites a frame in 0.1 ms on a discrete
+GPU and 32 ms on a software rasteriser, and any figure picked for one is wrong
+on the other. What it buys is that a slow machine draws fewer, wider-spaced
+pictures and still follows the scroll from end to end, which is the thing
+`tests/perf` asserts on.
+
 **Byte-budgeted bitmap cache.** `ImageBitmap` memory lives outside the JS heap
 and is released only by `close()`, so eviction is explicit and the unit tests
 assert on `close()` calls. The cache is bounded by bytes as well as by frame
-count: the same 24 frames are 39 MB decoded at 640² and 199 MB at 1440².
+count: the same 24 frames are 39 MB decoded at 640² and 199 MB at 1440². The
+prefetch window is sized from the byte budget rather than fixed, because a
+window in frames and a ceiling in bytes only agree at one decode size.
+
+**Nothing animates off screen.** Every loop with no natural end — the sweep, the
+spin, the playhead — goes through one visibility gate. Parked at the footer with
+every section mounted: 720 canvas clears and 720 layout reads in three seconds
+before, none after.
 
 **No GSAP, no ScrollTrigger.** The pinned section is `position: sticky` and
 progress is one `getBoundingClientRect` per frame, read before anything has

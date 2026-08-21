@@ -23,11 +23,12 @@ file is the working knowledge that is expensive to re-derive.
 
 ```bash
 npm run dev              # Next 16 dev server, Turbopack
-npm run verify           # typecheck + lint + 17 unit tests — run before every commit
+npm run verify           # typecheck + lint + 25 unit tests — run before every commit
 npm run build            # production build
 npm run audit:budget     # asset + JS budget gate; needs a build first
-npm run test:e2e         # 40 Playwright tests, desktop + mobile projects (~6 min)
+npm run test:e2e         # 36 Playwright tests, desktop + mobile projects (~5 min)
 npm run test:a11y        # 12 axe / keyboard / reduced-motion tests
+npm run test:perf        # scrub continuity, own config, one worker (~30 s)
 npm run assets:all       # regenerate every asset from primitives (~4 min; needs ffmpeg)
 node scripts/shoot.mjs   # screenshot the stage at five scroll positions
 ```
@@ -73,12 +74,19 @@ These are the ones that cause silent breakage rather than an error.
    at drawn size. Anything that makes the player branch on which is running has
    put the abstraction back where it started.
 
-6. **New below-the-fold sections are code-split.** Client wrapper +
+6. **Anything that animates on a loop is gated on visibility.** Use
+   `onFrameWhileVisible` from `src/lib/scroll/onScreen.ts`, never `onFrame`
+   directly, for anything with no natural end — an idle spin, a sweep, a
+   damped playhead. This has been the same bug four times. Measured parked at
+   the footer with every section mounted and none visible: 720 `clearRect`
+   and 720 `getBoundingClientRect` in three seconds, against 0 after.
+
+7. **New below-the-fold sections are code-split.** Client wrapper +
    `next/dynamic({ ssr: false })` + `LazySection`, following
    `src/components/xray/XraySectionLazy.tsx`. Pass `LazySection` the section's
    `id` so the anchor exists before the section mounts.
 
-7. **Numbers appear in one place.** The spec table and the encoder-written
+8. **Numbers appear in one place.** The spec table and the encoder-written
    manifest are what the page and the engineering notes read. Nothing on this
    site may quote a frame count, a file size or a figure the build disagrees
    with — a spec sheet contradicting the paragraph beside it is the worst
@@ -115,9 +123,70 @@ waiting on its own pool, silently.
 the head, rewind", and it picks the second. The first version reset the decoder
 on every network chunk and produced not one frame, without ever erroring —
 resetting a decoder is perfectly legal. `inFlight` in `video.worker.ts` is
-that distinction; `pickTarget` is the other half, and it prefers the on-screen
-frame, then anything ahead, and only rewinds for look-behind frames when there
-is nothing ahead left to do.
+that distinction.
+
+**A decoder's queue is latency, not buffer.** It is a FIFO: a frame requested
+now comes out after everything already queued has. Depth measured in frames
+hides that completely — twenty-four frames is 40 ms of latency where a
+composite costs 1.65 ms and 900 ms where it costs 38, and both are real
+machines. The depth is derived from the measured composite cost
+(`TARGET_QUEUE_MS`), not chosen.
+
+**Never rewind while the sweep still has work ahead of it.** The decode head is
+deliberately ahead of the playhead, so the frame on screen is usually *behind*
+the head, and chasing it means `reset()` — which drops everything in flight.
+Then the playhead moves and it happens again. Measured as half a second in
+which the decoder ran flat out and delivered three frames. `pickTarget` takes
+anything ahead first and only rewinds when the sweep has genuinely run out.
+
+**A request has to aim where the playhead is going.** A frame asked for at N
+arrives `latency` later, by which point the scroll is at N + speed x latency —
+sixty frames on a software rasteriser against a `nearest()` search range of
+twelve, so the canvas had nothing to show and froze. The player measures
+round-trip time as a *time*, not as a distance in frames: a distance is only
+true at one scroll speed, so it has to be relearnt exactly when it is needed
+and has not converged. A time is a property of the machine, learnt during
+ordinary scrolling and already right when a flick starts.
+
+**`nearest()` is asymmetric on purpose.** Backwards it covers the measured lag;
+forwards it must not, because the player aims ahead deliberately and the frames
+arriving early are frames the scroll has not reached. A symmetric search showed
+frame 220 while the playhead was at 162.
+
+**postMessage is FIFO, so a window sent after the requests it authorises loses
+them.** The worker measures each request against the window it had a tick ago
+and silently drops the ones that have just come into range; the player counts
+those as outstanding and never re-asks. Measured as the playhead sitting on
+frame 163 with the canvas showing 149 and 27 requests pending, permanently.
+`prefetch` announces first, then asks.
+
+**A `subarray` pins the buffer it was cut from.** `IvfReader` used to
+concatenate each network chunk onto a growing accumulator and hand out views
+into it, so every frame kept its whole accumulator alive — 181 MB retained and
+359 MB copied for a 3.34 MB stream, on the worker thread, during the hero. It
+now copies each frame once into a buffer of its own size. Its queue uses a head
+pointer rather than `shift()`: shifting is O(n) in queue length and the queue
+is longest exactly when the chunks are smallest.
+
+**A guarded cache window bigger than the byte ceiling makes the ceiling
+decorative.** `BitmapLRU` used to stop evicting once everything left was
+guarded, so at 1440² — 7.91 MB a frame, 29 in the window — it sat at 189.8 MB
+against a stated 160. The guard still beats the *count* limit and no longer
+beats the byte limit, and the player sizes its window from what the budget
+affords.
+
+**`background-position` is not a compositable property**, and neither is
+anything else you might reach for to move a texture. Animating it repaints the
+element every step; `will-change: background-position` only gives it a layer to
+repaint in. `mix-blend-mode` is worse in a different way — it forces the
+compositor to read the backdrop, and the grain sits directly over the stage
+canvas. Move an oversized child by `transform` instead, and compensate the
+overhang in `background-position` or the tile lands on different pixels.
+
+**`will-change` is a promise, not a hint you can leave on.** It holds a
+compositor layer for as long as it is set. The hero copy and the four captions
+are full-viewport elements; clear it in the same write that sets
+`visibility: hidden`.
 
 **Lenis owns the scroll position, so tests must not jump.** A programmatic
 `window.scrollTo` gets pulled back towards Lenis's own target, and a test that
@@ -126,16 +195,24 @@ very convincing screenshot of the wrong frame. Drive with `mouse.wheel`, and
 converge rather than aiming once — the inertial tail overshoots a single
 impulse.
 
-**Anything with an idle animation must stop when off screen.** The configurator
-renders a live scene, and an idle spin has no natural end: without the
-visibility gate it kept drawing at the refresh rate several sections up the page
-and in a background tab. It also starved the test suite badly enough to fail
-unrelated tests, which is the cheaper way to find out.
-
 **The e2e suite runs two workers on purpose.** Each one decodes a 2896x1440 VP9
 stream or renders three.js through software WebGL while reading pixels back. One
 worker per core starves them, and starvation looks exactly like the regressions
 the tests exist to catch.
+
+**A performance test must not share the machine.** `tests/perf` has its own
+config at one worker for that reason: run beside the rest of the suite it
+reported a largest-gap of 169 where it reports 21 to 48 alone. For the same
+reason it asserts on the fraction of the playhead's journey the picture covered
+— which does not simply get worse on a slower machine — and merely *logs*
+granularity, which does.
+
+**Headless Chromium composites in software, and it is 300x slower.** WebGL in
+the worker runs on SwiftShader: the packed-frame texture upload costs 32 ms
+there against 0.1 ms on a discrete GPU. Profiling headless and optimising for
+what you find is optimising for a machine nobody uses — check the renderer
+string before believing a number. It cuts both ways: the same gap is why the
+CI budgets are looser than the figures a real browser reports.
 
 **Boot progress must be measured, not counted.** A resize bumps the decoder's
 generation and the worker discards everything in flight, so counting replies
@@ -190,6 +267,7 @@ src/lib/
                             decoder.worker (WebP stills) + video.worker (WebCodecs)
                             ivf.ts (container reader), matte.ts (WebGL2 recombine)
   scroll/                   rafBus (the one loop), scrollEngine (Lenis), useSectionProgress
+                            onScreen (the visibility gate every loop goes through)
   audio/                    AudioBus, synth (everything is synthesised)
   perf/                     fpsMeter
   motion.ts                 cached environment probes; utils.ts: cn, damp, clamp, easings
@@ -231,6 +309,21 @@ request to seek, `VideoDecoder` is not. Inter-frame prediction then costs
 **Seeking.** A frame decodes only from the keyframe at or before it, so a
 backwards jump costs up to one GOP (16). Frames passed on the way are
 composited if they were wanted and dropped if not — one decode either way.
+
+**Scheduling.** Everything the player does about a fast scrub comes from two
+measurements it takes of itself: delivery rate, in frames per second, and
+round-trip latency, in seconds. Below the delivery rate it asks for every frame
+and nothing changes. Above it, the timeline is sampled at a stride that matches
+what can actually arrive, and each request aims `speed x latency` frames ahead
+of the playhead so the frame lands *at* the scroll rather than behind it. Both
+are properties of the machine rather than constants: the same build composites
+a frame in 0.1 ms on a discrete GPU and 32 ms in software, and a number chosen
+for either one is wrong on the other.
+
+The visible consequence is that a slow machine draws fewer, wider-spaced
+pictures and still follows the scroll end to end. That is the figure
+`tests/perf` asserts on, and it was 0.10 before this — the canvas covered
+twenty-four frames while the scroll crossed two hundred and thirty-nine.
 
 **Cross-fade.** The playhead keeps its fractional position and the draw weights
 the two frames it sits between. Never over a tint: that path ends in
@@ -284,15 +377,20 @@ The scrollytelling cannot be checked by asserting on the DOM — everything that
 matters happens inside a canvas React never re-renders — so those tests read
 pixels: coverage, frame fingerprints, mean luminance for the finish tests.
 
-- `tests/unit/` — vitest. LRU eviction and `close()`, caption timing,
-  frame-rate-independent damping.
+- `tests/unit/` — vitest. LRU eviction, `close()` and the byte ceiling; the
+  IVF reader across four chunkings; caption timing; frame-rate-independent
+  damping.
 - `tests/e2e/` — Playwright, `desktop` and `mobile` projects.
+- `tests/perf/` — scrub continuity under a fast flick, own config, one worker.
+  Asserts on the fraction of the playhead's journey the picture covered and on
+  where it lands when the scroll stops; logs granularity without asserting on
+  it, because that one is a measure of the machine.
 - `tests/a11y/` — axe on the chrome, on every lazy section once mounted, on the
   palette while open, on `/engineering`; plus the skip link, keyboard
   reachability and the reduced-motion path.
 
-CI (`.github/workflows/ci.yml`) builds once and reuses it for both Playwright
-suites. There is no Lighthouse job: its stable categories are already covered by
+CI (`.github/workflows/ci.yml`) builds once and reuses it for all three
+Playwright suites. There is no Lighthouse job: its stable categories are already covered by
 axe and the budget gate, and a performance score from a shared runner flaps
 enough that people learn to ignore it.
 
@@ -305,14 +403,15 @@ with slack in it is a budget nobody respects.
 
 | Asset | Budget | Current |
 | --- | --- | --- |
-| First-load JS (gzip) | 180 KB | ~163 KB |
-| All JS chunks (gzip) | 420 KB | 358 KB |
+| First-load JS (gzip) | 180 KB | 164.1 KB |
+| All JS chunks (gzip) | 420 KB | 360.3 KB |
 | Desktop video | 3.70 MB | 3.34 MB / 240 frames |
 | Mobile video | 1.50 MB | 1.36 MB / 240 frames |
 | Desktop still fallback | 5.00 MB | 4.54 MB / 120 frames |
 | Mobile still fallback | 1.70 MB | 1.51 MB / 60 frames |
 | Peak frame, desktop | 100 KB | 91.2 KB |
-| X-Ray pair @2400px | 240 KB | 189 KB |
+| Peak frame, mobile | 64 KB | 57.9 KB |
+| X-Ray pair @2400px | 240 KB | 189.3 KB |
 | Noise tile | 6 KB | 4.1 KB |
 | Audio files | 0 | 0 — everything is synthesised |
 
