@@ -28,6 +28,8 @@ export interface Telemetry {
   lruBytes: number;
   /** Frames requested from the worker but not yet decoded. */
   decodeQueue: number;
+  /** How far behind the playhead a requested frame lands, in frames. */
+  lag: number;
   /**
    * Largest jump, in frames, between two consecutively *displayed* pictures.
    *
@@ -40,8 +42,29 @@ export interface Telemetry {
   frameGapMax: number;
   /** Total distance travelled in drawn frames, for a mean alongside the max. */
   frameGapSum: number;
+  /**
+   * Distance the playhead itself covered, in frames.
+   *
+   * The denominator that makes the rest of these mean something.
+   * `framesDrawn / playheadTravel` is the fraction of the frames the scroll
+   * crossed that actually reached the screen — 1.0 is every one of them, and
+   * the reported symptom measured 0.01. Unlike a raw gap it does not simply
+   * get worse on a slower machine: the player samples the timeline against its
+   * own measured delivery rate, so a slow machine draws fewer, wider-spaced
+   * pictures and still follows the scroll.
+   */
+  playheadTravel: number;
   /** Number of times a different picture reached the canvas. */
   framesDrawn: number;
+  /**
+   * Frames delivered by the worker, however they were used.
+   *
+   * The throughput of the whole chain — decode, composite, transfer, cache —
+   * as opposed to the decode rate on its own. The gap between the two is where
+   * a scrub is actually lost: VP9 decodes a packed frame here in 1.65 ms, so
+   * anything well under 600/s is being spent somewhere after the decoder.
+   */
+  framesDecoded: number;
   /**
    * Frames that arrived after the playhead had already left them behind.
    *
@@ -69,9 +92,12 @@ export const telemetry: Telemetry = {
   lruSize: 0,
   lruBytes: 0,
   decodeQueue: 0,
+  lag: 0,
   frameGapMax: 0,
   frameGapSum: 0,
+  playheadTravel: 0,
   framesDrawn: 0,
+  framesDecoded: 0,
   decodeWaste: 0,
   pointerX: 0,
   pointerY: 0,
@@ -91,7 +117,9 @@ export const telemetry: Telemetry = {
 export function resetFrameStats() {
   telemetry.frameGapMax = 0;
   telemetry.frameGapSum = 0;
+  telemetry.playheadTravel = 0;
   telemetry.framesDrawn = 0;
+  telemetry.framesDecoded = 0;
   telemetry.decodeWaste = 0;
 }
 

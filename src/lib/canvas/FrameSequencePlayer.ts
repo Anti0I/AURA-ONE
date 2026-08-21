@@ -50,6 +50,65 @@ export interface PlayerOptions {
 }
 
 /**
+ * Starting guess for end-to-end delivery, in frames per second.
+ *
+ * Only a starting guess: the real figure is measured from arrivals, because it
+ * is not a property of the code. The same build delivers frames at wildly
+ * different rates depending on whether the composite lands on a GPU or on a
+ * software rasteriser — measured here at 0.1 ms per frame on a discrete GPU
+ * against 32 ms on SwiftShader, a factor of three hundred. Hard-coding either
+ * one would tune the site for a machine somebody else is not using.
+ */
+const INITIAL_DELIVERY_RATE = 60;
+
+/** Bounds on the measured rate, so one strange interval cannot capture it. */
+const MIN_DELIVERY_RATE = 10;
+const MAX_DELIVERY_RATE = 400;
+
+/**
+ * Furthest the playhead may be led, in frames.
+ *
+ * The lead is derived from measurement, not chosen, so this only exists to stop
+ * a pathological reading from aiming at the far end of the film.
+ */
+const MAX_LEAD = 60;
+
+/** Starting guess for round-trip latency, in seconds. Replaced by measurement. */
+const INITIAL_LATENCY = 0.05;
+
+/** Bounds on it, for the same reason as the delivery rate's. */
+const MIN_LATENCY = 0.004;
+const MAX_LATENCY = 0.4;
+
+/**
+ * Coarsest sampling of the timeline.
+ *
+ * Sized against the worst gesture the page allows rather than a round number.
+ * At 460svh the walkthrough is about 9 px of scroll per frame on a short
+ * viewport, so one hard wheel flick can cross the entire 240-frame timeline
+ * inside Lenis's glide. A stride of 6 cannot cover that on a machine
+ * compositing in software, and what "cannot cover" looks like is the picture
+ * freezing for a hundred and thirty frames and then jumping — which is the
+ * reported bug, arrived at from the other direction.
+ *
+ * `nearest()` scales its search to match, so the substitute is never more than
+ * half a stride from the frame actually wanted.
+ */
+const MAX_STRIDE = 24;
+
+/**
+ * The strides that may be chosen, coarsest last.
+ *
+ * Quantised rather than continuous, because the stride sets the *phase* of the
+ * requested ladder as well as its spacing: a stride drifting 15, 16, 18, 20
+ * asks for a different set of frames every tick, none of which supersedes the
+ * last, and the worker's queue grows without bound with nothing ever leaving
+ * it. Snapping to a short list means consecutive ticks mostly re-ask for frames
+ * already in flight, which is free.
+ */
+const STRIDES = [1, 2, 3, 4, 6, 8, 12, 16, 24];
+
+/**
  * Draws a scroll-driven frame sequence onto a 2D canvas.
  *
  * Deliberately not a React component and deliberately not driven by state:
@@ -72,6 +131,45 @@ export class FrameSequencePlayer {
   private current = 0;
   private lastDrawn = -1;
   private direction = 1;
+  /** Previous tick's target, for measuring how fast the scroll is moving. */
+  private lastTarget = 0;
+  /** Playhead speed in frames per second, smoothed. See `stride`. */
+  private speed = 0;
+  /** Measured end-to-end delivery, in frames per second. See `stride`. */
+  private delivery = INITIAL_DELIVERY_RATE;
+  /** Timestamp of the previous arrival, for measuring the interval. */
+  private lastArrival = 0;
+  /** Previous tick's frame index, for measuring how far the playhead went. */
+  private lastIndex = -1;
+  /**
+   * Round-trip time from asking for a frame to holding it, in seconds.
+   *
+   * The quantity that decides whether a fast scrub looks continuous, and the
+   * one this player originally had no idea about. A frame asked for at index N
+   * arrives `latency` later, by which point the playhead is at
+   * `N + speed * latency` — and if that distance exceeds the range
+   * `nearest()` will substitute across, the canvas has nothing to show and
+   * holds its last picture until the scroll slows. Measured at 120 ms on a
+   * software rasteriser, which at 400 frames a second is a lag of forty-eight
+   * against a search range of twelve. That is the reported "it skips about
+   * twenty frames", from the inside.
+   *
+   * Deliberately kept as a *time* rather than as a distance in frames. A
+   * distance is only true at one scroll speed, so it has to be relearnt every
+   * time the speed changes — which is exactly when it is needed and exactly
+   * when it has not converged yet. A time is a property of the machine: it is
+   * learnt during ordinary scrolling and is already right when a flick starts.
+   *
+   * It also cannot be derived from the delivery rate. Delivery is a throughput
+   * and this is a latency: a pipeline handing back a frame every 30 ms can
+   * still be handing back frames that were asked for 300 ms ago.
+   */
+  private latency = INITIAL_LATENCY;
+  /** When each outstanding request was posted, for measuring `latency`. */
+  private readonly requestedAt = new Map<number, number>();
+  /** Inclusive bounds of the last window announced to the worker. */
+  private lo = -1;
+  private hi = -1;
 
   /**
    * Bumped whenever the decode size changes. The worker drops anything from an
@@ -223,6 +321,7 @@ export class FrameSequencePlayer {
     this.failures.clear();
     this.frames = this.variant.frameCount;
     this.lastDrawn = -1;
+    this.lo = this.hi = -1;
 
     this.spawn();
 
@@ -237,6 +336,7 @@ export class FrameSequencePlayer {
       }
     }
   }
+
 
   destroy() {
     window.clearTimeout(this.preloadTimeout);
@@ -259,9 +359,10 @@ export class FrameSequencePlayer {
   /** Jumps the playhead without damping — used on mount and on phase skips. */
   jumpTo(p: number) {
     this.target = this.current = clamp(p, 0, 1);
-    // A deliberate jump is not a dropped frame. Forgetting the last picture
-    // stops it being reported as one.
+    // A deliberate jump is not a dropped frame, and it is not travel either.
+    // Forgetting both stops it being reported as one.
     this.displayed = -1;
+    this.lastIndex = -1;
   }
 
   /**
@@ -396,6 +497,7 @@ export class FrameSequencePlayer {
     if (this.cache.has(index) || this.wanted.has(index)) return;
 
     this.wanted.add(index);
+    this.requestedAt.set(index, performance.now());
     this.pending++;
     this.worker?.postMessage({
       type: "decode",
@@ -417,6 +519,9 @@ export class FrameSequencePlayer {
     this.pending = Math.max(0, this.pending - 1);
 
     if (message.type === "decoded") {
+      telemetry.framesDecoded++;
+      this.measureDelivery();
+      this.measureLatency(message.index);
       // Arrived after the playhead had already left it behind: decoded,
       // composited and transferred for nothing, and about to evict something
       // still wanted. Counted rather than dropped — dropping it here would
@@ -481,13 +586,35 @@ export class FrameSequencePlayer {
         ? damp(this.current, this.target, this.opts.damping, delta)
         : this.target;
 
+    // How fast the scroll is dragging the playhead, in frames per second.
+    // Measured on `target` rather than on `current`: the damped playhead is
+    // what we are trying to keep fed, so the question is where the scroll is
+    // going, not where the draw has got to.
+    if (delta > 0) {
+      const travelled =
+        Math.abs(this.target - this.lastTarget) * (this.frames - 1);
+      const instant = travelled / delta;
+      // Rises instantly, decays slowly. Reacting late to a flick is the
+      // failure this exists to prevent; returning to full detail a few frames
+      // after the wheel stops costs nothing, because the eye has not settled
+      // either.
+      this.speed =
+        instant > this.speed ? instant : damp(this.speed, instant, 5, delta);
+    }
+    this.lastTarget = this.target;
+
     // Sub-frame position, so the draw can cross-fade rather than snap. Rounded
     // to 1/32 of a frame: fine enough that the blend reads as continuous,
     // coarse enough that a settled page stops redrawing entirely.
     const exact = clamp(this.current, 0, 1) * (this.frames - 1);
     const blended = Math.round(exact * 32) / 32;
     const index = this.frameIndex(this.current);
+    if (this.opts.reportTelemetry && this.lastIndex >= 0) {
+      telemetry.playheadTravel += Math.abs(index - this.lastIndex);
+    }
+    this.lastIndex = index;
     this.prefetch(index);
+    if (this.opts.reportTelemetry) telemetry.lag = this.lead();
 
     if (blended !== this.lastDrawn) this.draw(blended);
 
@@ -502,19 +629,161 @@ export class FrameSequencePlayer {
     }
   }
 
-  private prefetch(index: number) {
-    const ahead = this.direction > 0 ? this.opts.lookAhead : this.opts.lookBehind;
-    const behind = this.direction > 0 ? this.opts.lookBehind : this.opts.lookAhead;
+  /**
+   * How thinly to sample the timeline right now, in frames.
+   *
+   * At 14 px of scroll per frame a wheel flick crosses well over a hundred
+   * frames inside Lenis's glide. Nothing decodes, composites and transfers a
+   * hundred and fifty 2896x1440 frames a second, so the honest question at that
+   * speed is not whether frames get dropped but *which* ones.
+   *
+   * A fixed dense window answers it badly. It asks for the twenty frames just
+   * ahead of a playhead that is about to be eighty frames further on, so almost
+   * everything it decodes is stale on arrival: the picture stalls, then jumps.
+   * Spreading the same budget across the whole distance instead buys a coarser
+   * but continuous move, which is what the eye actually reads at speed — and
+   * the stride collapses back to 1 the moment the scroll slows, which is the
+   * only time anyone can see individual frames anyway.
+   */
+  private stride(): number {
+    if (this.speed <= this.delivery) return 1;
+    const want = Math.min(MAX_STRIDE, this.speed / this.delivery);
+    for (const step of STRIDES) if (step >= want) return step;
+    return MAX_STRIDE;
+  }
 
-    this.request(index, true);
-    for (let i = 1; i <= ahead; i++) this.request(index + this.direction * i, false);
-    for (let i = 1; i <= behind; i++) this.request(index - this.direction * i, false);
+  /**
+   * Updates the measured delivery rate from the interval between arrivals.
+   *
+   * Intervals longer than half a second are idle time, not slow frames — the
+   * playhead has stopped and nothing is being asked for. Counting those would
+   * drive the estimate towards zero while the page sits still, and then the
+   * first flick after a pause would be sampled as coarsely as the machine is
+   * slow, which it is not.
+   */
+  /** Updates the measured round-trip time from a frame that has just landed. */
+  private measureLatency(index: number) {
+    const posted = this.requestedAt.get(index);
+    if (posted === undefined) return;
+    this.requestedAt.delete(index);
+    const took = (performance.now() - posted) / 1000;
+    this.latency = clamp(
+      this.latency + (took - this.latency) * 0.2,
+      MIN_LATENCY,
+      MAX_LATENCY,
+    );
+  }
+
+  /**
+   * How far ahead of the playhead to aim, in frames.
+   *
+   * Speed times latency, which is the distance the playhead covers while the
+   * pipeline is fetching. Aiming this far ahead is what makes a frame arrive
+   * *at* the playhead rather than behind it, and it needs no learning period:
+   * both terms are already known when the flick begins.
+   */
+  private lead(): number {
+    return Math.min(MAX_LEAD, Math.round(this.speed * this.latency));
+  }
+
+  private measureDelivery() {
+    const now = performance.now();
+    const gap = (now - this.lastArrival) / 1000;
+    this.lastArrival = now;
+    if (gap <= 0 || gap > 0.5) return;
+    this.delivery = clamp(
+      this.delivery + (1 / gap - this.delivery) * 0.08,
+      MIN_DELIVERY_RATE,
+      MAX_DELIVERY_RATE,
+    );
+  }
+
+  private prefetch(index: number) {
+    const step = this.stride();
+    const ahead = this.direction > 0 ? this.opts.lookAhead : this.opts.lookBehind;
+    // Look-behind deliberately does *not* scale with the stride. It exists for
+    // a scroll reversal, which is a slow-scroll behaviour — nobody flicks the
+    // wheel hard and then immediately goes back. Scaled, it reached fifty
+    // frames behind a playhead moving forwards at speed, and every one of those
+    // is a request the decoder can only reach by rewinding.
+    const behind =
+      step > 1 ? 1 : this.direction > 0 ? this.opts.lookBehind : this.opts.lookAhead;
+
+    // Snapped to a grid. Without it the ladder slides by one frame every tick,
+    // so consecutive ticks ask for two interleaved sets and the decoder spends
+    // its time being sent back for a frame it passed a millisecond ago.
+    // Aimed at where the playhead will be by the time the frame arrives, not
+    // where it is now. `lag` is measured from urgent frames that have already
+    // landed, so this is a closed loop: aim further ahead, arrive less late,
+    // and the lead shrinks back to nothing as the scroll slows.
+    const aim = clamp(
+      index + this.direction * this.lead(),
+      0,
+      this.frames - 1,
+    );
+    const anchor = step === 1 ? aim : Math.round(aim / step) * step;
+
+    // Announced *before* the requests it authorises, and that order is the
+    // whole point. postMessage is FIFO, so a window sent afterwards arrives
+    // after them, and the worker measures each request against the window it
+    // had a tick ago — silently dropping exactly the frames that have just come
+    // into range. The player counts those as outstanding and never asks again,
+    // so the picture stops dead while the playhead carries on: measured at a
+    // playhead on frame 163 with the canvas showing 149, twenty-seven requests
+    // pending, and no way out of it.
+    this.announce(
+      anchor - behind * step * this.direction,
+      anchor + ahead * step * this.direction,
+    );
 
     // Standing guard over the window we just asked for, so frames landing out
     // of order cannot evict each other before the playhead reaches them.
     this.keep.clear();
-    for (let i = -behind; i <= ahead; i++) this.keep.add(index + this.direction * i);
+
+    this.request(anchor, true);
+    this.keep.add(anchor);
+    for (let i = 1; i <= ahead; i++) {
+      const at = anchor + this.direction * i * step;
+      this.request(at, false);
+      this.keep.add(at);
+    }
+    for (let i = 1; i <= behind; i++) {
+      const at = anchor - this.direction * i * step;
+      this.request(at, false);
+      this.keep.add(at);
+    }
+
     this.cache.protect(this.keep);
+  }
+
+  /**
+   * Tells the worker which frames still matter, and forgets the rest here too.
+   *
+   * A request used to leave the queue only by being satisfied, so during a fast
+   * scrub the worker kept decoding frames the playhead had left behind — paid
+   * for twice, because the result then evicts something still wanted. The
+   * window is contiguous by construction, so two numbers say it.
+   */
+  private announce(a: number, b: number) {
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    if (lo === this.lo && hi === this.hi) return;
+    this.lo = lo;
+    this.hi = hi;
+
+    // Boot owns the queue until it lets go. Its frames sit outside this window
+    // by the end of the preload run, and cancelling them leaves the overlay
+    // waiting on frames nobody is ever going to send.
+    if (this.preloadResolve) return;
+
+    for (const index of this.wanted) {
+      if (index < lo || index > hi) {
+        this.wanted.delete(index);
+        this.requestedAt.delete(index);
+        this.pending = Math.max(0, this.pending - 1);
+      }
+    }
+    this.worker?.postMessage({ type: "window", lo, hi });
   }
 
   /**
@@ -615,9 +884,28 @@ export class FrameSequencePlayer {
    * visitor saw.
    */
   private nearest(index: number): number {
-    for (let offset = 1; offset <= 12; offset++) {
+    // Half a stride is the furthest the wanted frame can be from one that was
+    // actually asked for, so the search only has to reach that far — and it
+    // has to reach *at least* that far, or a coarse scrub shows a blank canvas
+    // instead of a coarse one.
+    // Asymmetric, and that is the point.
+    //
+    // Backwards the search has to cover how far behind the pipeline actually
+    // is, or the playhead is never near anything that has arrived and the
+    // canvas holds its last picture instead. Forwards it must not: the player
+    // aims ahead of the playhead on purpose, so the frames arriving early are
+    // frames the scroll has not reached yet, and showing one is showing the
+    // future. Measured with a symmetric search: the playhead at 162 and the
+    // canvas showing 220, a jump of 148 forwards followed by the picture
+    // sitting still while the scroll caught up with it. A slightly stale
+    // picture reads as weight; a premature one reads as a glitch.
+    const back = Math.max(12, this.stride() + this.lead());
+    const forward = Math.max(2, this.stride());
+    for (let offset = 1; offset <= back; offset++) {
       if (this.cache.peek(index - offset)) return index - offset;
-      if (this.cache.peek(index + offset)) return index + offset;
+      if (offset <= forward && this.cache.peek(index + offset)) {
+        return index + offset;
+      }
     }
     return -1;
   }

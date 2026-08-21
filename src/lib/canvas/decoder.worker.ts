@@ -37,6 +37,19 @@ const queued = new Set<number>();
 let generation = 0;
 let inFlight = 0;
 
+/**
+ * Inclusive range of frames the player still wants.
+ *
+ * The video worker needs this because a stale decode blocks the frame on
+ * screen behind it. This one needs it for a plainer reason: a stale fetch is
+ * still one of only four connections, and the urgent lane cannot help if all
+ * four are busy downloading frames nobody will look at. Both sources speak the
+ * one protocol, and a message only half of them honoured would be the start of
+ * them drifting apart.
+ */
+let windowLo = -Infinity;
+let windowHi = Infinity;
+
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
 function post(message: DecodeResponse, transfer?: Transferable[]) {
@@ -112,11 +125,27 @@ ctx.onmessage = (event: MessageEvent<DecodeRequest>) => {
     return;
   }
 
+  if (message.type === "window") {
+    windowLo = message.lo;
+    windowHi = message.hi;
+    const inWindow = (job: Job) => {
+      if (job.index >= windowLo && job.index <= windowHi) return true;
+      queued.delete(job.index);
+      return false;
+    };
+    // Filtered in place: the arrays are the queue, and replacing them would
+    // leave `pump` holding the old ones on the next tick.
+    urgent.splice(0, urgent.length, ...urgent.filter(inWindow));
+    normal.splice(0, normal.length, ...normal.filter(inWindow));
+    return;
+  }
+
   // `open` belongs to the video worker; the two share a request type so the
   // player can talk to either without branching.
   if (message.type !== "decode") return;
 
   generation = message.generation;
+  if (message.index < windowLo || message.index > windowHi) return;
   if (queued.has(message.index)) return;
   queued.add(message.index);
 

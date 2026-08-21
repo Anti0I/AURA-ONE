@@ -69,6 +69,17 @@ export type DecodeRequest =
       urgent: boolean;
     }
   | { type: "drop"; generation: number }
+  /**
+   * The frames the player still cares about, as an inclusive range.
+   *
+   * Without this the only way a request left the queue was by being satisfied,
+   * so a fast scrub had the worker decoding, compositing and transferring
+   * frames the playhead had passed several hundred milliseconds earlier — work
+   * that is wasted twice, because the result then evicts a frame that is still
+   * wanted. Two numbers rather than the set: the window is contiguous by
+   * construction, and this is sent whenever it moves.
+   */
+  | { type: "window"; lo: number; hi: number }
   /** Video worker only: hands it the stream to open. */
   | { type: "open"; video: VideoVariant };
 

@@ -40,8 +40,27 @@ import { MatteCompositor } from "./matte";
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
-/** Chunks in flight before we stop feeding and wait for `dequeue`. */
-const MAX_QUEUE = 8;
+/**
+ * How much buffered work the decoder may hold, in milliseconds.
+ *
+ * A decoder is a FIFO, so its queue is not a buffer — it is *latency*. A frame
+ * requested now comes out after everything already queued has come out, and
+ * queue depth measured in frames hides that completely: twenty-four frames is
+ * forty milliseconds of latency where a composite costs 1.65 ms, and nine
+ * hundred where it costs 38. Both of those are real machines. The first is a
+ * discrete GPU, the second is the same code on a software rasteriser, and on
+ * the second the picture froze for the better part of a second while the
+ * decoder ran flat out delivering frames the playhead had passed long ago.
+ *
+ * So the depth is derived from measured cost instead. Roughly five animation
+ * frames of work: enough that the decoder is never idle waiting to be topped
+ * up, short enough that a request is served while it still means something.
+ */
+const TARGET_QUEUE_MS = 80;
+
+/** Bounds on the derived depth. Two is the shallowest that still pipelines. */
+const MIN_QUEUE = 2;
+const MAX_QUEUE = 32;
 
 let variant: VideoVariant | null = null;
 let decoder: VideoDecoder | null = null;
@@ -49,13 +68,42 @@ let compositor: MatteCompositor | null = null;
 const reader = new IvfReader();
 
 /**
- * How far ahead of the decode head a request may sit before we give up on
- * walking to it and restart from its keyframe instead.
+ * Frames a reset is worth, expressed as decodes.
  *
- * Below the GOP length a jump is never worth it: decoding forward one frame at
- * a time is strictly cheaper than restarting and decoding the same count again.
+ * `reset()` plus `configure()` tears down and rebuilds the decoder's pipeline.
+ * Jumping forward to a keyframe only pays when it saves more decodes than the
+ * reset itself costs — under that, the cheapest thing a decoder can do is keep
+ * going.
  */
-let jumpThreshold = 16;
+const RESET_COST = 4;
+
+/**
+ * How far past the frame on screen the decode head may run.
+ *
+ * Decoding ahead is how a scrub stays smooth, but only up to a point: the head
+ * cannot come back without a reset, so every frame it runs ahead is a frame the
+ * playhead may later have to rewind for. Deep enough to keep the decoder busy
+ * across a slow main thread, shallow enough that when the scroll stops the
+ * overshoot is a fraction of a GOP rather than a full seek.
+ */
+const LEAD = 32;
+
+/**
+ * Measured cost of composing one frame, in milliseconds.
+ *
+ * Seeded high so the first few frames are served at a shallow depth: being
+ * briefly too cautious costs a little throughput, being briefly too deep costs
+ * a visible freeze.
+ */
+let composeMs = 8;
+
+/** Queue depth the measured composite cost can afford. */
+function queueDepth(): number {
+  return Math.max(
+    MIN_QUEUE,
+    Math.min(MAX_QUEUE, Math.round(TARGET_QUEUE_MS / Math.max(0.2, composeMs))),
+  );
+}
 
 let generation = 0;
 let decodeWidth = 0;
@@ -64,8 +112,25 @@ let head = -1;
 let downloadDone = false;
 let scheduled = false;
 
-/** Frames the player has asked for and not yet been sent; value is urgency. */
-const wanted = new Map<number, boolean>();
+/** Frames the player has asked for and not yet been sent. */
+const wanted = new Set<number>();
+
+/**
+ * The one frame the playhead is on, or -1.
+ *
+ * Latest wins, deliberately. Urgency used to be a flag that never downgraded,
+ * so after a second of scrubbing thirty frames were all "urgent" and the
+ * scheduler picked whichever was nearest the head — which is to say, the
+ * oldest. Every frame it then delivered was aimed at where the playhead had
+ * been when the request went out, and at speed that is a long way from where
+ * the playhead is when the frame arrives: measured at fifty-four frames, far
+ * outside the range `nearest()` will substitute across, so the canvas showed
+ * nothing new for half a second and then jumped.
+ *
+ * A scrubber only ever has one frame that matters, and it is the most recent
+ * one asked for.
+ */
+let urgentIndex = -1;
 
 /**
  * Frames handed to the decoder that have not come back out yet.
@@ -103,6 +168,10 @@ function config(): VideoDecoderConfig {
 
 // ---- Decoder ---------------------------------------------------------------
 
+/** Inclusive range of frames the player still wants. See `window`. */
+let windowLo = -Infinity;
+let windowHi = Infinity;
+
 function onFrame(frame: VideoFrame) {
   // The timestamp is the frame index; see `feed`.
   const index = frame.timestamp;
@@ -112,8 +181,14 @@ function onFrame(frame: VideoFrame) {
     if (!wanted.has(index) || !compositor || !variant || decodeWidth === 0) {
       return;
     }
+    const startedAt = performance.now();
     const bitmap = compositor.compose(frame, decodeWidth, variant.matteX);
+    // The number the queue depth is derived from. Measured rather than assumed
+    // because it varies by three hundred times between a GPU and a software
+    // rasteriser, and the right queue depth varies with it.
+    composeMs += (performance.now() - startedAt - composeMs) * 0.2;
     wanted.delete(index);
+    if (index === urgentIndex) urgentIndex = -1;
     post(
       {
         type: "decoded",
@@ -216,25 +291,47 @@ function rewind(index: number) {
  * case sweeps forward to the end of the whole requested window in one pass, so
  * it happens once rather than repeatedly.
  */
+/**
+ * Which outstanding request to work towards next.
+ *
+ * The order below is the whole scheduler, and every line of it was paid for.
+ *
+ * A decoder can only move forwards. Going back means `reset()`, which drops
+ * everything in flight, so the cost of a rewind is not the seek — it is the
+ * sweep it throws away. During a fast scrub the head is deliberately ahead of
+ * the playhead, which means *the frame on screen is usually behind the head*.
+ * Chasing it therefore rewinds, and because the playhead keeps moving it
+ * rewinds again on the next tick, and again: measured as half a second in which
+ * the decoder was continuously busy and delivered three frames.
+ *
+ * So the rule is: while there is anything ahead worth decoding, keep sweeping
+ * forward. Rewind only when the sweep has genuinely run out — the scroll
+ * reversed, or stopped past everything we have.
+ */
 function pickTarget(): number {
-  let urgent = -1;
   let ahead = -1;
   let behind = -1;
 
-  for (const [index, isUrgent] of wanted) {
+  for (const index of wanted) {
     if (index >= reader.frames.length || inFlight.has(index)) continue;
-    if (
-      isUrgent &&
-      (urgent < 0 || Math.abs(index - head) < Math.abs(urgent - head))
-    ) {
-      urgent = index;
-    }
     if (index > head && (ahead < 0 || index < ahead)) ahead = index;
     if (index <= head && (behind < 0 || index > behind)) behind = index;
   }
 
-  if (urgent >= 0) return urgent;
+  const urgentUsable =
+    urgentIndex >= 0 &&
+    urgentIndex < reader.frames.length &&
+    !inFlight.has(urgentIndex);
+
+  // The frame on screen, when reaching it costs nothing but forward motion.
+  if (urgentUsable && urgentIndex > head) return urgentIndex;
+  // Otherwise keep the sweep going. Whatever comes out next is close to the
+  // playhead by construction, because the head is bounded to `LEAD` past it.
   if (ahead >= 0) return ahead;
+  // Nothing ahead. Now a rewind is the only way to make progress, so it is
+  // worth what it costs — but never at the price of work already in flight.
+  if (inFlight.size > 0) return -1;
+  if (urgentUsable) return urgentIndex;
   return behind;
 }
 
@@ -244,7 +341,7 @@ function pump() {
 
   if (downloadDone) {
     // Nothing more is coming that could satisfy these.
-    for (const index of [...wanted.keys()]) {
+    for (const index of [...wanted]) {
       if (index >= reader.frames.length) {
         wanted.delete(index);
         post({
@@ -262,21 +359,50 @@ function pump() {
   const target = pickTarget();
   if (target < 0) return;
 
-  // Behind the head, or too far in front to be worth walking to: restart from
-  // the nearest keyframe. Dropping what is in flight is the right call — those
-  // frames belong to a part of the timeline the playhead has left.
-  if (target <= head || target - head > jumpThreshold) rewind(target);
-
-  // Walk forward to the furthest thing anyone has asked for. Frames in between
-  // are composited if they were wanted and dropped in `onFrame` if they were
-  // not, which costs one decode either way — and the player is usually about to
-  // want them.
-  let furthest = target;
-  for (const index of wanted.keys()) {
-    if (index < reader.frames.length && index > furthest) furthest = index;
+  // Behind the head: there is no choice, a frame only decodes from the
+  // keyframe at or before it. Ahead of the head: a choice, and the old rule
+  // ("further than a GOP") got it wrong in both directions. What actually
+  // decides it is where the target's keyframe sits. If it is at or behind the
+  // head, walking forward is free of any reset and strictly cheaper. If it is
+  // ahead, jumping there skips everything in between — but only pays once the
+  // skip is bigger than the reset.
+  const key = keyframeFor(target);
+  if (target <= head) {
+    // Behind the head. No choice: a frame only decodes from the keyframe at or
+    // before it.
+    rewind(target);
+  } else if (key > head + RESET_COST + inFlight.size) {
+    // Ahead of the head, and far enough ahead that skipping to its keyframe
+    // saves more than it costs.
+    //
+    // `inFlight.size` is the term that was missing, and leaving it out is what
+    // made a fast forward scrub fall apart. A reset drops every chunk the
+    // decoder is holding, so shortcutting past twelve frames while twenty-four
+    // are in flight throws away twice what it saves — and then the next tick
+    // does it again. The symptom was a decoder that looked saturated
+    // (inflight=24) one moment and empty the next, delivering a tenth of what
+    // it was capable of.
+    rewind(target);
   }
 
-  while (head < furthest && decoder.decodeQueueSize < MAX_QUEUE) {
+  // Walk forward to the furthest thing asked for, but not past a bounded lead.
+  // Frames in between are composited if they were wanted and dropped in
+  // `onFrame` if they were not, which costs one decode either way.
+  //
+  // The bound is the part that matters. Left unbounded the head sprints to the
+  // end of the film during a fast scrub — the requested ladder reaches that far
+  // — and from then on every frame the playhead asks for is *behind* the head,
+  // so every tick ends in a rewind and nothing is ever delivered.
+  let furthest = target;
+  const limit = target + LEAD;
+  for (const index of wanted) {
+    if (index < reader.frames.length && index > furthest && index <= limit) {
+      furthest = index;
+    }
+  }
+
+  const depth = queueDepth();
+  while (head < furthest && decoder.decodeQueueSize < depth) {
     feed(head + 1);
   }
 }
@@ -310,7 +436,6 @@ ctx.onmessage = (event: MessageEvent<DecodeRequest>) => {
 
   if (message.type === "open") {
     variant = message.video;
-    jumpThreshold = variant.gop;
     void (async () => {
       if (!(await open())) return;
       try {
@@ -328,6 +453,21 @@ ctx.onmessage = (event: MessageEvent<DecodeRequest>) => {
     return;
   }
 
+  if (message.type === "window") {
+    windowLo = message.lo;
+    windowHi = message.hi;
+    if (urgentIndex < windowLo || urgentIndex > windowHi) urgentIndex = -1;
+    // Everything outside the window is work the playhead has already moved
+    // past. Dropping it here is the difference between a scheduler that chases
+    // the scroll and one that trails it: without this the queue only ever
+    // shrank by being satisfied, so a fast scrub kept the decoder busy on
+    // frames nobody would see, while the frame on screen waited behind them.
+    for (const index of [...wanted]) {
+      if (index < windowLo || index > windowHi) wanted.delete(index);
+    }
+    return;
+  }
+
   if (message.type !== "decode") return;
 
   if (message.generation !== generation) {
@@ -339,12 +479,11 @@ ctx.onmessage = (event: MessageEvent<DecodeRequest>) => {
   }
 
   decodeWidth = message.decodeWidth;
-  // Urgency never downgrades: a frame that was urgent once is the one on
-  // screen, and a later prefetch request for it should not demote it.
-  wanted.set(
-    message.index,
-    message.urgent || (wanted.get(message.index) ?? false),
-  );
+  // A request that has already fallen outside the window arrived late — the
+  // player moved on between posting it and this landing. Honour the window.
+  if (message.index < windowLo || message.index > windowHi) return;
+  wanted.add(message.index);
+  if (message.urgent) urgentIndex = message.index;
 
   if (!scheduled) {
     scheduled = true;
