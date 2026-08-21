@@ -4,6 +4,7 @@ import { Reticle } from "@/components/ui/Reticle";
 import { Stage } from "@/components/stage/Stage";
 import { XraySectionLazy } from "@/components/xray/XraySectionLazy";
 import { PlaygroundSectionLazy } from "@/components/playground/PlaygroundSectionLazy";
+import { ConfiguratorSectionLazy } from "@/components/configurator/ConfiguratorSectionLazy";
 
 export default function Home() {
   return (
@@ -15,10 +16,7 @@ export default function Home() {
         <Stage />
         <XraySectionLazy />
         <PlaygroundSectionLazy />
-        {/* Configurator lands in the next phase. */}
-        <section className="flex h-dvh items-center justify-center px-gutter">
-          <p className="rule-label">Next: configurator</p>
-        </section>
+        <ConfiguratorSectionLazy />
       </main>
     </>
   );

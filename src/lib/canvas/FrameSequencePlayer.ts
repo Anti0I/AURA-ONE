@@ -4,6 +4,8 @@ import { onFrame, Priority } from "@/lib/scroll/rafBus";
 import { telemetry } from "@/store/transient";
 import { clamp, damp } from "@/lib/utils";
 import { BitmapLRU } from "./BitmapLRU";
+import { drawTinted } from "./tint";
+import type { Material } from "@/data/materials";
 import { frameUrl, type DecodeResponse, type SequenceVariant } from "@/types/sequence";
 
 export interface PlayerOptions {
@@ -60,6 +62,7 @@ export class FrameSequencePlayer {
   private dest = { x: 0, y: 0, w: 0, h: 0 };
   /** Framing offsets as fractions of the canvas, plus a scale multiplier. */
   private framing = { x: 0, y: 0, scale: 1 };
+  private tint: Material | null = null;
   private readonly wanted = new Set<number>();
   /** Reused guard set — rebuilt in place every frame rather than reallocated. */
   private readonly keep = new Set<number>();
@@ -375,6 +378,15 @@ export class FrameSequencePlayer {
     this.cache.protect(this.keep);
   }
 
+  /**
+   * Applies a finish to every drawn frame, or clears it with `null`.
+   * See lib/canvas/tint.ts for why this is a draw-time composite.
+   */
+  setTint(material: Material | null) {
+    this.tint = material;
+    this.lastDrawn = -1;
+  }
+
   private draw(index: number) {
     const start = performance.now();
     const bitmap = this.cache.get(index) ?? this.nearest(index);
@@ -382,7 +394,12 @@ export class FrameSequencePlayer {
 
     const { ctx } = this;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.drawImage(bitmap, this.dest.x, this.dest.y, this.dest.w, this.dest.h);
+
+    if (this.tint) {
+      drawTinted(ctx, bitmap, this.dest, this.tint);
+    } else {
+      ctx.drawImage(bitmap, this.dest.x, this.dest.y, this.dest.w, this.dest.h);
+    }
 
     this.lastDrawn = index;
     // Rolling average: a single slow frame should nudge the readout, not

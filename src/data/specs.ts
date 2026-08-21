@@ -40,10 +40,10 @@ export const SPECS: readonly SpecRow[] = [
  * these against `batteryMilliampHours` to produce its curve.
  */
 export const POWER_MODES = [
-  { id: "idle", label: "Standby", mw: 8 },
-  { id: "playback", label: "Playback", mw: 42 },
-  { id: "anc", label: "Adaptive ANC", mw: 71 },
-  { id: "inference", label: "On-device inference", mw: 128 },
+  { id: "idle", label: "Standby", mw: 6 },
+  { id: "playback", label: "Playback", mw: 27 },
+  { id: "anc", label: "Adaptive ANC", mw: 37 },
+  { id: "inference", label: "On-device inference", mw: 65 },
 ] as const;
 
 export type PowerModeId = (typeof POWER_MODES)[number]["id"];
@@ -55,3 +55,23 @@ export const BATTERY = {
     return this.milliampHours * this.nominalVolts;
   },
 } as const;
+
+/**
+ * Runtime in hours for a given average draw.
+ *
+ * Every battery figure on the site comes through here — the bento slider, the
+ * playground scenario, the generated PDF. Quoting hours in one place and
+ * milliwatts in another is how a spec sheet ends up contradicting itself.
+ */
+export function runtimeHours(milliwatts: number): number {
+  return BATTERY.milliwattHours / milliwatts;
+}
+
+/** Average draw for a duty cycle expressed as fractions summing to 1. */
+export function averageDraw(mix: Partial<Record<PowerModeId, number>>): number {
+  let total = 0;
+  for (const mode of POWER_MODES) {
+    total += mode.mw * (mix[mode.id] ?? 0);
+  }
+  return total;
+}
