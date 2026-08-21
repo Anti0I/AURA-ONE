@@ -55,6 +55,7 @@ export class MatteCompositor {
   private uHalf: WebGLUniformLocation;
   private uMatteX: WebGLUniformLocation;
   private size = 0;
+  private allocated = false;
 
   constructor(private packedWidth: number, private packedHeight: number) {
     this.canvas = new OffscreenCanvas(1, 1);
@@ -101,10 +102,27 @@ export class MatteCompositor {
     }
 
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.texImage2D(
+    // Immutable storage, allocated once, then overwritten in place. Every
+    // `texImage2D` is a fresh allocation of the whole surface — 2896x1440
+    // RGBA, on every frame of a scrub — and the driver has to decide the
+    // format again each time. `texStorage2D` settles that at construction.
+    if (!this.allocated) {
+      this.allocated = true;
+      gl.texStorage2D(
+        gl.TEXTURE_2D,
+        1,
+        gl.RGBA8,
+        this.packedWidth,
+        this.packedHeight,
+      );
+    }
+    gl.texSubImage2D(
       gl.TEXTURE_2D,
       0,
-      gl.RGBA,
+      0,
+      0,
+      this.packedWidth,
+      this.packedHeight,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
       frame as unknown as TexImageSource,

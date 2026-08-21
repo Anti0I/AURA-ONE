@@ -30,6 +30,7 @@ interface Stats {
   framesDecoded: number;
   decodeWaste: number;
   frame: number;
+  displayed: number;
   source: string;
 }
 
@@ -46,6 +47,7 @@ function read(page: Page): Promise<Stats> {
       framesDecoded: t?.framesDecoded ?? -1,
       decodeWaste: t?.decodeWaste ?? -1,
       frame: t?.frame ?? -1,
+      displayed: t?.displayed ?? -1,
       source: canvas?.dataset.source ?? "none",
     };
   });
@@ -63,10 +65,19 @@ function read(page: Page): Promise<Stats> {
 async function settle(page: Page) {
   let lastFrame = -1;
   let lastDrawn = -1;
-  for (let poll = 0; poll < 30; poll++) {
+  let still = 0;
+  for (let poll = 0; poll < 40; poll++) {
     await page.waitForTimeout(120);
     const { frame, framesDrawn } = await read(page);
-    if (frame === lastFrame && framesDrawn === lastDrawn) return;
+    if (frame === lastFrame && framesDrawn === lastDrawn) {
+      // Three consecutive quiet polls, not one. Under a parallel run a single
+      // 120 ms window can pass with no frame delivered while the pipeline is
+      // still working, and stopping there scores a scrub that had not finished
+      // catching up.
+      if (++still >= 3) return;
+    } else {
+      still = 0;
+    }
     lastFrame = frame;
     lastDrawn = framesDrawn;
   }
@@ -101,7 +112,7 @@ test("a fast flick through the stage keeps the picture with the scroll", async (
     `[perf] source=${stats.source} followed=${followed.toFixed(2)} ` +
       `travel=${stats.playheadTravel} drawn=${stats.framesDrawn} ` +
       `mean=${(stats.frameGapSum / Math.max(1, stats.framesDrawn)).toFixed(2)} ` +
-      `gapMax=${stats.frameGapMax} decoded=${stats.framesDecoded} ` +
+      `gapMax=${stats.frameGapMax} landed=${stats.displayed}/${stats.frame} decoded=${stats.framesDecoded} ` +
       `waste=${stats.decodeWaste}`,
   );
 
@@ -133,6 +144,15 @@ test("a fast flick through the stage keeps the picture with the scroll", async (
     stats.frameGapMax,
     "largest jump between two consecutively displayed pictures",
   ).toBeLessThanOrEqual(96);
+
+  // Where the scroll stops, the picture has to stop too. During a fast scrub
+  // the two are deliberately apart — the canvas shows the nearest frame that
+  // has arrived — and a walkthrough that settles on the wrong one is a
+  // walkthrough whose captions describe a different picture.
+  expect(
+    Math.abs(stats.displayed - stats.frame),
+    `the picture landed where the scroll stopped (showing ${stats.displayed}, asked for ${stats.frame})`,
+  ).toBeLessThanOrEqual(1);
 
   // Some waste is unavoidable: a frame in flight when the playhead moves on is
   // already paid for. A scheduler working *against* the scroll is different in

@@ -122,13 +122,16 @@ describe("BitmapLRU byte budget", () => {
     expect(cache.byteLength).toBeLessThanOrEqual(40 * 1024 * 1024);
   });
 
-  it("keeps the guarded window even over the byte budget", () => {
-    // Undershooting the prefetch window guarantees a blank frame; being a few
-    // megabytes over for a moment does not.
-    const cache = new BitmapLRU(24, 8 * 1024 * 1024);
+  it("keeps the guarded window over the *count* limit", () => {
+    // Undershooting the prefetch window guarantees a blank frame mid-scrub;
+    // holding a few frames more than the count says does not. The byte ceiling
+    // is a different matter — see below, and note that this test used to
+    // assert the guard won there too, which is what made that ceiling
+    // unreachable in the one situation it existed for.
+    const cache = new BitmapLRU(2, Infinity);
     const guarded = new Set([0, 1, 2, 3]);
     cache.protect(guarded);
-    for (const i of guarded) cache.set(i, fakeBitmap(), 8 * 1024 * 1024);
+    for (const i of guarded) cache.set(i, fakeBitmap(), BYTES);
 
     expect(cache.size).toBe(4);
     for (const i of guarded) expect(cache.has(i)).toBe(true);
@@ -138,5 +141,65 @@ describe("BitmapLRU byte budget", () => {
     const cache = new BitmapLRU(4);
     for (let i = 0; i < 4; i++) cache.set(i, fakeBitmap(), 1e9);
     expect(cache.size).toBe(4);
+  });
+});
+
+describe("BitmapLRU under a byte ceiling", () => {
+  /**
+   * The guarded window used to win outright, which made the byte ceiling
+   * decorative. At 1440² a frame is 7.91 MB and the player's window is 29 of
+   * them — 229 MB against a stated 160 — and because eviction stopped as soon
+   * as everything left was guarded, the ceiling could never take effect. It
+   * only shows up on a high-DPI display, so it is the kind of bug you hear
+   * about from somebody else's machine: measured at 189.8 MB in a 3456x2234
+   * canvas before the fix, 158.2 MB after.
+   */
+  it("keeps the byte ceiling even when the whole window is guarded", () => {
+    const ceiling = 10 * BYTES;
+    const cache = new BitmapLRU(64, ceiling);
+
+    // Guard far more than the ceiling can hold.
+    const window = new Set(Array.from({ length: 30 }, (_, i) => i));
+    cache.protect(window);
+
+    const bitmaps = Array.from({ length: 30 }, fakeBitmap);
+    bitmaps.forEach((b, i) => cache.set(i, b, BYTES));
+
+    expect(cache.byteLength).toBeLessThanOrEqual(ceiling);
+    // And what it dropped, it released.
+    const closed = bitmaps.filter((b) => b.close.mock.calls.length > 0).length;
+    expect(closed).toBe(30 - cache.size);
+  });
+
+  it("still prefers unguarded frames when there are any", () => {
+    const cache = new BitmapLRU(64, 3 * BYTES);
+    const a = fakeBitmap();
+    const b = fakeBitmap();
+    const c = fakeBitmap();
+    const d = fakeBitmap();
+
+    cache.set(0, a, BYTES);
+    cache.set(1, b, BYTES);
+    cache.set(2, c, BYTES);
+    // 1 and 2 are the window; 0 is not, so 0 is what goes.
+    cache.protect(new Set([1, 2, 3]));
+    cache.set(3, d, BYTES);
+
+    expect(a.close).toHaveBeenCalledOnce();
+    expect(b.close).not.toHaveBeenCalled();
+    expect(c.close).not.toHaveBeenCalled();
+    expect(d.close).not.toHaveBeenCalled();
+  });
+
+  it("never empties itself to satisfy an impossible ceiling", () => {
+    // A ceiling smaller than one frame. Two frames stay regardless: the one
+    // being drawn and the one it is cross-fading towards. A blank canvas is
+    // not a valid way to come in under budget.
+    const cache = new BitmapLRU(64, BYTES / 4);
+    const bitmaps = Array.from({ length: 5 }, fakeBitmap);
+    cache.protect(new Set([0, 1, 2, 3, 4]));
+    bitmaps.forEach((b, i) => cache.set(i, b, BYTES));
+
+    expect(cache.size).toBe(2);
   });
 });

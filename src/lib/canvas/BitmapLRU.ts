@@ -84,34 +84,59 @@ export class BitmapLRU {
    *
    * The cache may briefly exceed `capacity` when the whole window is guarded.
    * Overshooting by a few frames costs a few megabytes; a blank canvas mid-scrub
-   * costs the illusion.
+   * costs the illusion. It may not exceed `maxBytes` — see `evict`.
    */
   protect(indices: ReadonlySet<number>) {
     this.guarded = indices;
     this.evict();
   }
 
+  /**
+   * Frames kept whatever happens, so a byte budget cannot blank the canvas.
+   *
+   * Two: the one being drawn and the one it is cross-fading towards.
+   */
+  private static readonly FLOOR = 2;
+
   private evict() {
     while (this.entries.size > this.capacity || this.bytes > this.maxBytes) {
-      // Never evict below the guarded window, whatever the byte budget says.
-      // Undershooting the prefetch window guarantees a blank frame; being a
-      // few megabytes over the budget for a moment does not.
-      if (this.entries.size <= this.guarded.size) return;
-      let victim = -1;
-      let oldest = Infinity;
-      for (const [index, entry] of this.entries) {
-        if (this.guarded.has(index)) continue;
-        if (entry.usedAt < oldest) {
-          oldest = entry.usedAt;
-          victim = index;
-        }
+      // Frames inside the prefetch window are spared the count limit:
+      // undershooting the window guarantees a blank frame mid-scrub, and being
+      // a few frames over the count for a moment does not.
+      const overBytes = this.bytes > this.maxBytes;
+      if (!overBytes && this.entries.size <= this.guarded.size) return;
+
+      let victim = this.oldest(true);
+
+      // Nothing unguarded left, and over the byte budget. The guard has to
+      // give, because a budget that yields to the guard is not a budget: at
+      // 1440² a frame is 7.91 MB, a 29-frame window is 229 MB, and the ceiling
+      // it was measured against is 160. That gap only ever appears on a
+      // high-DPI display, which is to say on somebody else's machine.
+      if (victim === -1 && overBytes && this.entries.size > BitmapLRU.FLOOR) {
+        victim = this.oldest(false);
       }
-      if (victim === -1) return; // everything is guarded; let it run over
+
+      if (victim === -1) return;
       const entry = this.entries.get(victim)!;
       entry.bitmap.close();
       this.bytes -= entry.bytes;
       this.entries.delete(victim);
     }
+  }
+
+  /** Least recently used index, optionally skipping the guarded window. */
+  private oldest(skipGuarded: boolean): number {
+    let victim = -1;
+    let oldest = Infinity;
+    for (const [index, entry] of this.entries) {
+      if (skipGuarded && this.guarded.has(index)) continue;
+      if (entry.usedAt < oldest) {
+        oldest = entry.usedAt;
+        victim = index;
+      }
+    }
+    return victim;
   }
 
   /** Releases every bitmap. Must be called on unmount — GC will not do it. */

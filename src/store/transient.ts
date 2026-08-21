@@ -13,8 +13,16 @@ import { onFrame, Priority } from "@/lib/scroll/rafBus";
  * 120 times a second is not, and nobody can read a number that fast anyway.
  */
 export interface Telemetry {
-  /** Nearest frame index currently drawn. */
+  /** Nearest frame index the scroll is asking for. */
   frame: number;
+  /**
+   * Frame index actually on the canvas, which is not always the one asked for.
+   *
+   * The two separate during a fast scrub and have to come back together when
+   * it stops: a walkthrough that settles on the wrong frame is a walkthrough
+   * whose captions describe a different picture.
+   */
+  displayed: number;
   /** Un-rounded scroll->frame position, useful for spotting easing bugs. */
   frameFloat: number;
   /** 0..1 through the pinned scrollytelling section. */
@@ -84,6 +92,7 @@ export interface Telemetry {
 
 export const telemetry: Telemetry = {
   frame: 0,
+  displayed: -1,
   frameFloat: 0,
   storyProgress: 0,
   fps: 0,

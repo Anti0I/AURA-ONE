@@ -141,6 +141,8 @@ export class FrameSequencePlayer {
   private lastArrival = 0;
   /** Previous tick's frame index, for measuring how far the playhead went. */
   private lastIndex = -1;
+  /** Bytes one decoded frame costs at the current size, once one has landed. */
+  private frameBytes = 0;
   /**
    * Round-trip time from asking for a frame to holding it, in seconds.
    *
@@ -181,6 +183,8 @@ export class FrameSequencePlayer {
 
   /** Reused across frames — the draw loop allocates nothing. */
   private dest = { x: 0, y: 0, w: 0, h: 0 };
+  /** What the previous draw actually touched, so the next one can undo it. */
+  private painted = { x: 0, y: 0, w: 0, h: 0 };
   /** Framing offsets as fractions of the canvas, plus a scale multiplier. */
   private framing = { x: 0, y: 0, scale: 1 };
   private tint: Material | null = null;
@@ -520,6 +524,7 @@ export class FrameSequencePlayer {
 
     if (message.type === "decoded") {
       telemetry.framesDecoded++;
+      this.frameBytes = message.bytes;
       this.measureDelivery();
       this.measureLatency(message.index);
       // Arrived after the playhead had already left it behind: decoded,
@@ -698,16 +703,44 @@ export class FrameSequencePlayer {
     );
   }
 
+  /**
+   * How many frames the byte budget can actually hold.
+   *
+   * The prefetch window is expressed in frames and the memory ceiling in bytes,
+   * and the two only agree at one decode size. At 1440² a frame is 7.91 MB, so
+   * the configured 20-ahead/8-behind window is 229 MB against a stated ceiling
+   * of 160 — and because the cache refuses to evict inside its own window, the
+   * ceiling could never take effect. The window is what has to give: a budget
+   * that yields is not a budget, and this one is a promise about somebody
+   * else's laptop.
+   */
+  private affordable(): number {
+    if (this.frameBytes <= 0) return this.opts.cacheSize;
+    return Math.max(
+      6,
+      Math.min(
+        this.opts.cacheSize,
+        Math.floor(this.opts.maxCacheBytes / this.frameBytes) - 1,
+      ),
+    );
+  }
+
   private prefetch(index: number) {
     const step = this.stride();
-    const ahead = this.direction > 0 ? this.opts.lookAhead : this.opts.lookBehind;
+    // Scaled to what memory allows, keeping the look-ahead/look-behind ratio.
+    const room = this.affordable() - 1;
+    const configured = this.opts.lookAhead + this.opts.lookBehind;
+    const scale = configured > room ? room / configured : 1;
+    const lookAhead = Math.max(2, Math.round(this.opts.lookAhead * scale));
+    const lookBehind = Math.max(1, Math.round(this.opts.lookBehind * scale));
+
+    const ahead = this.direction > 0 ? lookAhead : lookBehind;
     // Look-behind deliberately does *not* scale with the stride. It exists for
     // a scroll reversal, which is a slow-scroll behaviour — nobody flicks the
     // wheel hard and then immediately goes back. Scaled, it reached fifty
     // frames behind a playhead moving forwards at speed, and every one of those
     // is a request the decoder can only reach by rewinding.
-    const behind =
-      step > 1 ? 1 : this.direction > 0 ? this.opts.lookBehind : this.opts.lookAhead;
+    const behind = step > 1 ? 1 : this.direction > 0 ? lookBehind : lookAhead;
 
     // Snapped to a grid. Without it the ladder slides by one frame every tick,
     // so consecutive ticks ask for two interleaved sets and the decoder spends
@@ -826,7 +859,16 @@ export class FrameSequencePlayer {
     }
 
     const { ctx } = this;
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    // Only what was painted last time, not the whole canvas. At a 2x device
+    // ratio the canvas is 8.3 Mpx and the artwork is a 1858² square inside it,
+    // so clearing everything is three quarters of the fill wasted on pixels
+    // that were already transparent — every frame, for the whole scrub.
+    // The rect is inflated by one pixel because the destination is rounded and
+    // a filtered edge can bleed half of one.
+    const gone = this.painted;
+    if (gone.w > 0) {
+      ctx.clearRect(gone.x - 1, gone.y - 1, gone.w + 2, gone.h + 2);
+    }
 
     if (this.tint) {
       drawTinted(ctx, bitmap, this.dest, this.tint);
@@ -852,6 +894,11 @@ export class FrameSequencePlayer {
       }
     }
 
+    this.painted.x = this.dest.x;
+    this.painted.y = this.dest.y;
+    this.painted.w = this.dest.w;
+    this.painted.h = this.dest.h;
+
     this.lastDrawn = position;
 
     // Scrub quality, measured on what the visitor actually saw. A continuous
@@ -866,6 +913,7 @@ export class FrameSequencePlayer {
       }
       this.displayed = shown;
     }
+    if (this.opts.reportTelemetry) telemetry.displayed = shown;
 
     // Rolling average: a single slow frame should nudge the readout, not
     // spike it, or the HUD becomes unreadable noise.
