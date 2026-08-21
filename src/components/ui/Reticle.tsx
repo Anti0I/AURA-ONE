@@ -71,6 +71,13 @@ export function Reticle() {
     document.addEventListener("pointerleave", onLeave);
 
     const detach = onFrame((f) => {
+      // Nothing to move while it is hidden, and nothing to move once it has
+      // caught up. Without both tests this writes a transform to a
+      // `opacity: 0` element sixty times a second for the entire visit — the
+      // reticle is only ever shown over two of the page's sections.
+      if (!visible && Math.abs(x - targetX) + Math.abs(y - targetY) < 0.05) {
+        return;
+      }
       x = damp(x, targetX, 26, f.delta);
       y = damp(y, targetY, 26, f.delta);
       root.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;

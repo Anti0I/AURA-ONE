@@ -4,6 +4,11 @@ export default defineConfig({
   testDir: "tests",
   // tests/unit belongs to vitest. Without this, a bare `playwright test` picks
   // those files up and fails on the first `vitest` import.
+  // `tests/perf` is deliberately absent: it has its own config, because a
+  // performance measurement must not share the machine. Run alongside the rest
+  // of the suite it reported a largest-gap of 169 where it reports 24 to 48 on
+  // its own — which is not a regression, it is another browser decoding video
+  // on the same cores, and it looks exactly like one.
   testMatch: ["e2e/**/*.spec.ts", "a11y/**/*.spec.ts"],
   fullyParallel: true,
   // Two, deliberately. Each of these runs a browser decoding a 2896x1440 VP9

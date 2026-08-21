@@ -17,7 +17,7 @@ jobs:
     # The e2e suite decodes VP9 and renders three.js through software WebGL on a
     # two-core runner. It takes ~6 minutes locally and there is no reason to
     # expect better there.
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     steps:
       - uses: actions/checkout@v4
@@ -60,6 +60,12 @@ jobs:
 
       - name: Accessibility audit
         run: npm run test:a11y -- --project=desktop
+
+      # Its own step and its own config, at one worker. This one measures how
+      # promptly frames reach a canvas, and a second browser decoding VP9 beside
+      # it changes the answer by a factor of four.
+      - name: Scrub performance
+        run: npm run test:perf
 
       - name: Upload Playwright report
         if: failure()

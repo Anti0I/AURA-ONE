@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { onFrame, Priority } from "@/lib/scroll/rafBus";
+import { Priority } from "@/lib/scroll/rafBus";
+import { onFrameWhileVisible } from "@/lib/scroll/onScreen";
 import { readEnvironment } from "@/lib/motion";
 import { getMaterial } from "@/data/materials";
 import { useAppStore } from "@/store/useAppStore";
@@ -133,25 +134,9 @@ export function ConfiguratorLive({ onFail }: { onFail: () => void }) {
 
       setReady(true);
 
-      // Render only while the section is actually on screen.
-      //
-      // An idle spin is a loop with no natural end, so without this the scene
-      // keeps drawing at the display's refresh rate for the rest of the
-      // session — several sections above it, and in a background tab. It costs
-      // the visitor's battery to animate something nobody is looking at.
-      let onScreen = false;
-      const visibility = new IntersectionObserver(
-        (entries) => {
-          onScreen = entries.some((entry) => entry.isIntersecting);
-        },
-        { rootMargin: "100px" },
-      );
-      visibility.observe(frame);
-      const stopWatching = () => visibility.disconnect();
-
-      detach = onFrame((f) => {
-        if (!onScreen || document.visibilityState === "hidden") return;
-
+      // Render only while the section is actually on screen. An idle spin is a
+      // loop with no natural end; see `onFrameWhileVisible`.
+      detach = onFrameWhileVisible(frame, (f) => {
         if (dragging) {
           // held
         } else if (Math.abs(spin) > 0.0002) {
@@ -172,12 +157,6 @@ export function ConfiguratorLive({ onFail }: { onFail: () => void }) {
 
         stage?.orbit(azimuth, elevation);
       }, Priority.RENDER);
-
-      const detachFrame = detach;
-      detach = () => {
-        detachFrame?.();
-        stopWatching();
-      };
     })();
 
     return () => {

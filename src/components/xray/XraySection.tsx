@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import manifest from "@/data/sequence.json";
 import { HOTSPOTS, LABEL_LAYOUT, LOCK_RADIUS } from "@/data/hotspotLayout";
-import { onFrame, Priority } from "@/lib/scroll/rafBus";
+import { Priority } from "@/lib/scroll/rafBus";
+import { onFrameWhileVisible } from "@/lib/scroll/onScreen";
 import { Particles } from "@/lib/canvas/Particles";
 import { readEnvironment } from "@/lib/motion";
 import { lock as lockSound } from "@/lib/audio/synth";
@@ -124,7 +125,14 @@ export function XraySection() {
     // phone, which is where a good half of a recruiter's first look happens.
     frame.addEventListener("pointerdown", onPointerMove, { passive: true });
 
-    const detach = onFrame((f) => {
+    // Gated on visibility. The sweep is a loop with no end, so without this it
+    // keeps running — Lissajous, damping, a distance test against every
+    // hotspot, two transform writes and a full-bleed `clearRect` — for the
+    // rest of the session, including while the visitor is back up at the hero.
+    // `content-visibility: auto` skips *rendering* the section; it does
+    // nothing about the frame loop, and the `clearRect` still dirties the
+    // canvas layer for the compositor every frame.
+    const detach = onFrameWhileVisible(frame, (f) => {
       if (!pointerDriven) {
         // Lissajous sweep. Two incommensurable frequencies means the path never
         // repeats exactly, so an idle section does not look like a GIF — and it

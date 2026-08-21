@@ -23,6 +23,12 @@ async function boot(page: Page) {
 
 
 test("the wheel alone reaches the bottom of the document", async ({ page }) => {
+  // This one walks the entire document in 180px notches, which is four hundred
+  // round trips to the browser. It takes 24 s on an idle machine against a 30 s
+  // default, so under a parallel run it fails on the clock rather than on the
+  // claim — and a timeout here reads exactly like the scroll bug it exists to
+  // catch.
+  test.setTimeout(120_000);
   await boot(page);
   await expect(page.getByRole("contentinfo")).not.toBeInViewport();
 

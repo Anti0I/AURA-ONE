@@ -3,7 +3,8 @@
 import { useEffect, useRef } from "react";
 import manifest from "@/data/sequence.json";
 import { FrameSequencePlayer } from "@/lib/canvas/FrameSequencePlayer";
-import { onFrame, Priority } from "@/lib/scroll/rafBus";
+import { Priority } from "@/lib/scroll/rafBus";
+import { onFrameWhileVisible } from "@/lib/scroll/onScreen";
 import { readEnvironment } from "@/lib/motion";
 import { getMaterial } from "@/data/materials";
 import { PHASES } from "@/data/story";
@@ -95,7 +96,8 @@ export function ConfiguratorFallback() {
     frame.addEventListener("pointerup", onUp);
     frame.addEventListener("pointercancel", onUp);
 
-    const detach = onFrame((f) => {
+    // Same gate as the live version. An idle spin has no natural end.
+    const detach = onFrameWhileVisible(frame, (f) => {
       if (dragging) {
         // held
       } else if (Math.abs(velocity) > 0.0002) {

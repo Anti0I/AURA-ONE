@@ -145,9 +145,15 @@ export function Stage() {
       const hero = heroRef.current;
       if (hero) {
         const out = easeOutExpo(clamp(p / (HERO_HOLD * 0.85), 0, 1));
+        const gone = out >= 1;
         hero.style.opacity = String(1 - out);
         hero.style.transform = `translate3d(0, ${(-out * 42).toFixed(2)}px, 0)`;
-        hero.style.visibility = out >= 1 ? "hidden" : "visible";
+        hero.style.visibility = gone ? "hidden" : "visible";
+        // `will-change` is a promise to the compositor, not a decoration: it
+        // holds a full-viewport layer for as long as it is set. Left on, the
+        // hero and all four captions keep theirs for the rest of the session,
+        // long after they stopped moving.
+        hero.style.willChange = gone ? "auto" : "opacity, transform";
       }
 
       for (let i = 0; i < STORY.length; i++) {
@@ -159,7 +165,9 @@ export function Stage() {
         // Rises as it appears and keeps rising as it leaves: the caption never
         // reverses direction, so successive beats read as one continuous move.
         el.style.transform = `translate3d(0, ${((1 - o) * 26).toFixed(2)}px, 0)`;
-        el.style.visibility = o <= 0.001 ? "hidden" : "visible";
+        const gone = o <= 0.001;
+        el.style.visibility = gone ? "hidden" : "visible";
+        el.style.willChange = gone ? "auto" : "opacity, transform";
       }
 
       const rail = railRef.current;

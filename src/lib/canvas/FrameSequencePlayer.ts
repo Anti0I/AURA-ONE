@@ -1,6 +1,7 @@
 "use client";
 
-import { onFrame, Priority } from "@/lib/scroll/rafBus";
+import { Priority } from "@/lib/scroll/rafBus";
+import { onFrameWhileVisible } from "@/lib/scroll/onScreen";
 import { telemetry } from "@/store/transient";
 import { clamp, damp } from "@/lib/utils";
 import { BitmapLRU } from "./BitmapLRU";
@@ -263,7 +264,16 @@ export class FrameSequencePlayer {
     this.observer.observe(this.canvas);
     this.resize();
 
-    this.detach = onFrame((f) => this.tick(f.delta), Priority.RENDER);
+    // Gated on the canvas being near the viewport. The playhead is damped and
+    // the prefetch window is rebuilt every tick, so a settled player still does
+    // real work — a set cleared and refilled, a cache guard reapplied — for as
+    // long as the tab is open, on a section the visitor scrolled past minutes
+    // ago.
+    this.detach = onFrameWhileVisible(
+      this.canvas,
+      (f) => this.tick(f.delta),
+      Priority.RENDER,
+    );
   }
 
   /**

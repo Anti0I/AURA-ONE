@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test tests/e2e",
+    "test:perf": "playwright test --config playwright.perf.config.ts",
     "test:a11y": "playwright test tests/a11y",
     "assets:prerender": "node scripts/prerender.mjs",
     "assets:encode": "node scripts/encode-sequence.mjs",

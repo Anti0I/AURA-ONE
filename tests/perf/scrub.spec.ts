@@ -106,6 +106,19 @@ test("a fast flick through the stage keeps the picture with the scroll", async (
     await settle(page);
   }
 
+  // Back up into the middle of the walkthrough, hard, and stop there.
+  //
+  // Two reasons. A reverse scrub is the expensive direction for a video
+  // source — a frame only decodes from the keyframe at or before it — so it
+  // belongs in this measurement. And the landing assertion below needs the
+  // scroll to stop somewhere the section is actually on screen: the player
+  // stops ticking once the stage is behind the visitor, which is correct and
+  // would otherwise read as a picture that failed to catch up.
+  for (let pass = 0; pass < 6 && (await read(page)).frame > 140; pass++) {
+    for (let i = 0; i < 8; i++) await page.mouse.wheel(0, -260);
+    await settle(page);
+  }
+
   const stats = await read(page);
   const followed = stats.frameGapSum / Math.max(1, stats.playheadTravel);
   console.log(
@@ -137,13 +150,13 @@ test("a fast flick through the stage keeps the picture with the scroll", async (
   // indistinguishable from the regressions these tests exist to catch.
 
   // Stall detector. A single long gap does not mean the scrub is coarse, it
-  // means it stopped: the failure being fixed here produced 128 to 148
-  // consistently, and the residual maximum is main-thread jank during the
-  // first burst of the flick rather than anything in the decoder.
+  // means it stopped: the failure this test was written against produced 128 to
+  // 148 every time, where the same run now reports 21 to 48. What is left is
+  // main-thread jank in the first burst of a flick, not the decoder.
   expect(
     stats.frameGapMax,
     "largest jump between two consecutively displayed pictures",
-  ).toBeLessThanOrEqual(96);
+  ).toBeLessThanOrEqual(64);
 
   // Where the scroll stops, the picture has to stop too. During a fast scrub
   // the two are deliberately apart — the canvas shows the nearest frame that

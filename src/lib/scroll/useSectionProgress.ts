@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, type RefObject } from "react";
-import { onFrame, Priority } from "./rafBus";
+import { Priority } from "./rafBus";
+import { onFrameWhileVisible } from "./onScreen";
 import { clamp } from "@/lib/utils";
 
 /**
@@ -30,7 +31,11 @@ export function useSectionProgress(
 
     let lastReported = -1;
 
-    return onFrame(() => {
+    // A `getBoundingClientRect` every frame is cheap, but it is not free, and
+    // it was running for the whole session on a section the visitor left three
+    // screens ago. The margin is wide enough that progress is already correct
+    // by the time any of it is visible.
+    return onFrameWhileVisible(el, () => {
       // Layout read, and this is the INPUT phase — nothing has written to the
       // DOM yet this frame, so it cannot force a reflow.
       const rect = el.getBoundingClientRect();
