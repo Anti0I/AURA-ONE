@@ -1,8 +1,8 @@
 # AURA ONE
 
 A product page for hardware that does not exist, built to demonstrate the parts
-that do: scroll-driven canvas rendering, in-browser inference, and memory
-discipline.
+that do: scroll-driven canvas rendering, procedural asset generation, and
+memory discipline.
 
 **Every asset is generated from code.** No stock photography, no purchased 3D
 model, no HDRI, no audio files, no paid API keys — for me or for anyone opening
@@ -107,12 +107,6 @@ scroll commits before anything draws with it.
 brightness pass, a `color` blend, an `overlay` pass and a `destination-in` clip.
 Adding a finish costs an object in a data file.
 
-**Two AI engines behind one interface.** Both emit the same stream of typed
-parts — text, tool calls, waveforms, telemetry, spectra — and a registry maps
-each type to a component. The default engine ships with the page and answers in
-under 300 ms; the other downloads SmolLM2-135M-Instruct and runs it on your GPU,
-behind an explicit click.
-
 **All audio is synthesised**, ambient bed included. No files, no licences,
 nothing to preload, and a hover tick that can be pitched per element — which a
 sample cannot do without shipping one per variant.
@@ -144,18 +138,10 @@ assets-src/device/     procedural Three.js scene + texture generators
 scripts/               prerender, encode, budget audit, screenshots
 src/lib/canvas/        frame player, worker decoder, LRU, tinting, particles
 src/lib/scroll/        one rAF bus, Lenis integration, section progress
-src/lib/ai/            part protocol, engine interface, both implementations
-src/lib/audio/         AudioContext bus, synthesis, microphone capture
+src/lib/audio/         AudioContext bus, everything synthesised
 src/components/        one directory per section
 src/data/              product data, story timing, generated manifests
 ```
-
-## Notes
-
-`npm audit` reports advisories in `onnxruntime-node` and its bundled `sharp`.
-Both are Node-side transitive dependencies of `@huggingface/transformers`; only
-the web build is ever imported, and only from the browser, so neither package is
-loaded at runtime or at build time.
 
 ## Licence
 

@@ -58,7 +58,6 @@ export function CommandPalette() {
     return [
       { id: "top", label: "Go to top", group: "Navigate", run: go("#stage") },
       { id: "scanner", label: "Neural scanner", group: "Navigate", run: go("#scanner") },
-      { id: "playground", label: "Neural OS playground", group: "Navigate", run: go("#playground") },
       { id: "configurator", label: "Configurator", group: "Navigate", run: go("#configurator") },
       { id: "engineering", label: "Engineering notes", group: "Navigate", hint: "page", run: () => {
           close();

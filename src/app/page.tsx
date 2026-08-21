@@ -6,7 +6,6 @@ import { CommandPalette } from "@/components/palette/CommandPalette";
 import { DevInspector } from "@/components/devhud/DevInspector";
 import { Stage } from "@/components/stage/Stage";
 import { XraySectionLazy } from "@/components/xray/XraySectionLazy";
-import { PlaygroundSectionLazy } from "@/components/playground/PlaygroundSectionLazy";
 import { ConfiguratorSectionLazy } from "@/components/configurator/ConfiguratorSectionLazy";
 
 export default function Home() {
@@ -20,7 +19,6 @@ export default function Home() {
       <main id="main">
         <Stage />
         <XraySectionLazy />
-        <PlaygroundSectionLazy />
         <ConfiguratorSectionLazy />
       </main>
       <SiteFooter />

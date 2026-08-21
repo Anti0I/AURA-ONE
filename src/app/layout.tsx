@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     type: "website",
     title: `${PRODUCT.name} — ${PRODUCT.tagline}`,
     description:
-      "Neural hardware concept site. Canvas scrollytelling, on-device AI playground, live engineering HUD.",
+      "Neural hardware concept site. Canvas scrollytelling, an X-ray scanner you aim, and a live engineering HUD.",
   },
   robots: { index: true, follow: true },
 };

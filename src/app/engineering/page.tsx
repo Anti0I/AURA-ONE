@@ -10,7 +10,7 @@ const SEQUENCE = manifest as SequenceManifest;
 export const metadata: Metadata = {
   title: "Engineering notes",
   description:
-    "How the AURA ONE page is built: worker-decoded frame sequences, a byte-budgeted bitmap cache, a typed generative-UI stream and two AI engines behind one interface.",
+    "How the AURA ONE page is built: worker-decoded frame sequences, a byte-budgeted bitmap cache, and a procedural render pipeline with no asset files behind it.",
 };
 
 const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(2)} MB`;
@@ -48,10 +48,10 @@ export default function EngineeringPage() {
         </h1>
         <p className="mt-6 text-lead leading-relaxed text-ink-dim">
           {PRODUCT.name} is a fictional product. The page is not: it is a
-          portfolio piece about scroll-driven canvas rendering, in-browser
-          inference and memory discipline, built with no paid services and no
-          stock assets. These are the decisions worth defending, and the bugs
-          worth admitting.
+          portfolio piece about scroll-driven canvas rendering, procedural
+          asset generation and memory discipline, built with no paid services
+          and no stock assets. These are the decisions worth defending, and the
+          bugs worth admitting.
         </p>
       </header>
 
@@ -193,33 +193,29 @@ export default function EngineeringPage() {
         </P>
       </Section>
 
-      <Section title="Two AI engines, one interface">
+      <Section title="The page that would not reach its own footer">
         <P>
-          An engine does not return a string. It emits a stream of typed parts —
-          text, tool calls, waveforms, telemetry, spectra — and a registry maps
-          each type to a component. That is what lets a response contain a chart
-          without anyone parsing it back out of markdown.
+          Smooth scrolling means intercepting the wheel and animating the
+          scroll position yourself, which means owning a number the browser
+          used to own: the maximum. Lenis caches{" "}
+          <Code>scrollHeight - innerHeight</Code> and clamps every gesture to
+          it. Dragging the native scrollbar does not go through any of that.
         </P>
         <P>
-          The default engine ships with the page: zero bytes downloaded, first
-          token under 300 ms, identical everywhere. It routes a prompt to one of
-          five prepared analyses and streams the answer with decode-like timing —
-          a measurable time-to-first-token, per-token latency that varies, and
-          real pauses at clause boundaries. Constant intervals are what give a
-          typewriter effect away.
+          This page grows a great deal after that measurement is taken. Three
+          sections mount lazily from placeholders shorter than the real thing,
+          the scanner carries <Code>content-visibility: auto</Code> so its
+          height materialises on approach, and the preloader parks{" "}
+          <Code>overflow: hidden</Code> on the root element — the element the
+          library watches — for the whole of boot.
         </P>
         <P>
-          The other downloads SmolLM2-135M-Instruct (q4f16, 118 MB) and runs it
-          on the visitor&rsquo;s GPU, reporting the decode rate it actually
-          achieved. It is behind an explicit click, because a page that starts a
-          118 MB download because somebody scrolled is not a demonstration of
-          anything.
-        </P>
-        <P>
-          Shipping only the scripted engine leaves you unable to show you can
-          run a model in a browser; shipping only the real one means a visitor
-          without WebGPU sees nothing at all. Behind one interface the choice
-          becomes a runtime detail instead of a bet.
+          The result was precise and easy to disbelieve: 400 wheel notches
+          plateaued at 92.2% of the document, while the scrollbar still reached
+          100%. Re-measuring from <Code>document.body</Code>, whose box actually
+          tracks content, takes it to the bottom in 48. The fix is four lines;
+          finding it meant reproducing it at a realistic scroll granularity,
+          because a single coarse shove overshoots straight past the evidence.
         </P>
       </Section>
 

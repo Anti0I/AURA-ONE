@@ -3,8 +3,8 @@
 # AURA ONE
 
 A product page for hardware that does not exist, built as a portfolio piece
-about scroll-driven canvas rendering, in-browser inference and memory
-discipline.
+about scroll-driven canvas rendering, procedural asset generation and
+memory discipline.
 
 **The founding constraint: every asset is generated from code.** No stock
 photography, no purchased 3D model, no HDRI, no texture files, no audio files,
@@ -72,10 +72,10 @@ These are the ones that cause silent breakage rather than an error.
    `src/components/xray/XraySectionLazy.tsx`. Pass `LazySection` the section's
    `id` so the anchor exists before the section mounts.
 
-7. **Numbers appear in one place.** The power model, the spec table and the
-   manifest are read by the page, the playground scenarios, the generated PDF
-   and the engineering notes. `tests/unit/power-model.test.ts` asserts they
-   agree. A spec sheet contradicting the paragraph beside it is the worst
+7. **Numbers appear in one place.** The spec table and the encoder-written
+   manifest are what the page and the engineering notes read. Nothing on this
+   site may quote a frame count, a file size or a figure the build disagrees
+   with — a spec sheet contradicting the paragraph beside it is the worst
    failure this project can have.
 
 ---
@@ -119,7 +119,7 @@ template literals to keep text nodes single.
 **ESLint blocks `setState` inside effects.** For platform capabilities that never
 change, use `useClientValue` (`src/lib/useClientValue.ts`), which wraps
 `useSyncExternalStore`. Never write a ref during render either — construct
-lazily inside a callback, as `useConversation` does for the engines.
+lazily inside a callback instead.
 
 **A `listbox` may contain only `option` and `group`.** The obvious
 `ul > li > button role="option"` nests three invalid ARIA relationships. The
@@ -149,8 +149,7 @@ scripts/
 src/lib/
   canvas/                   FrameSequencePlayer, decoder.worker, BitmapLRU, tint, Particles
   scroll/                   rafBus (the one loop), scrollEngine (Lenis), useSectionProgress
-  ai/                       protocol, engine interface, deterministic/, webgpu/, useConversation
-  audio/                    AudioBus, synth (everything is synthesised), useMicrophone
+  audio/                    AudioBus, synth (everything is synthesised)
   perf/                     fpsMeter
   pdf/                      spec-sheet (pdf-lib, dynamically imported)
   motion.ts                 cached environment probes; utils.ts: cn, damp, clamp, easings
@@ -192,13 +191,6 @@ window into the lower one. The lens is a fixed-size element that is
 *translated*, and the copy of the artwork inside it is translated by exactly the
 opposite amount. Animating `mask-image` or `clip-path` position recomputes the
 mask on the compositor's critical path every frame.
-
-**AI.** An engine emits a stream of typed parts, not a string; a registry maps
-each part type to a component. `DeterministicEngine` ships with the page and
-answers in under 300 ms with decode-like token timing. `WebGpuEngine` downloads
-SmolLM2-135M-Instruct (q4f16, 118 MB) behind an explicit click and reports the
-decode rate it actually achieved. Both satisfy the same interface, so the UI
-never branches on which is answering.
 
 **Audio** is entirely synthesised, ambient bed included. One `AudioContext`,
 created on the first gesture. A hover tick can be pitched per element, which a
@@ -284,9 +276,5 @@ browser downloads.
 ## Known items
 
 - `src/data/author.ts` still holds placeholder GitHub and LinkedIn URLs.
-- `npm audit` reports advisories in `onnxruntime-node` and its bundled `sharp`,
-  both Node-side transitive deps of `@huggingface/transformers`. Only the web
-  build is imported, and only from the browser — neither is loaded at runtime or
-  build time.
 - The dev-only `window.__player` handle in `Stage.tsx` exists for
   `scripts/shoot.mjs` and devtools poking. It is stripped in production.

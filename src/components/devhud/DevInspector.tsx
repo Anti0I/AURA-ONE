@@ -36,7 +36,7 @@ export function DevInspector() {
   }, [open]);
 
   // `d` toggles it. No modifier, because it is a developer affordance and the
-  // page has no text input outside the playground — which stops the event.
+  // page has no text input at all, so nothing else claims the keystroke.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "d" || e.metaKey || e.ctrlKey || e.altKey) return;

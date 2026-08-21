@@ -137,7 +137,7 @@ export function ConfiguratorSection() {
 
       <header className="relative mb-12 flex flex-wrap items-end justify-between gap-6">
         <div>
-          <SectionLabel index={4}>Configure</SectionLabel>
+          <SectionLabel index={3}>Configure</SectionLabel>
           <h2 className="mt-5 max-w-[18ch] text-title font-medium text-ink">
             Four finishes. One render.
           </h2>
