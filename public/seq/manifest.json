@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-21T08:07:04.006Z",
+  "generatedAt": "2026-08-21T12:23:39.088Z",
   "sourceFrameCount": 240,
   "source": {
     "width": 1440,
@@ -29,32 +29,6 @@
       "avgFrameBytes": 26336
     }
   },
-  "xray": {
-    "outer": [
-      {
-        "width": 2400,
-        "url": "/img/xray-outer.avif",
-        "bytes": 31434
-      },
-      {
-        "width": 1200,
-        "url": "/img/xray-outer-1200.avif",
-        "bytes": 16089
-      }
-    ],
-    "inner": [
-      {
-        "width": 2400,
-        "url": "/img/xray-inner.avif",
-        "bytes": 162398
-      },
-      {
-        "width": 1200,
-        "url": "/img/xray-inner-1200.avif",
-        "bytes": 63884
-      }
-    ]
-  },
   "video": {
     "desktop": {
       "url": "/seq/desktop.ivf",
@@ -80,5 +54,31 @@
       "packedHeight": 720,
       "bytes": 1428465
     }
+  },
+  "xray": {
+    "outer": [
+      {
+        "width": 2400,
+        "url": "/img/xray-outer.avif",
+        "bytes": 31434
+      },
+      {
+        "width": 1200,
+        "url": "/img/xray-outer-1200.avif",
+        "bytes": 16089
+      }
+    ],
+    "inner": [
+      {
+        "width": 2400,
+        "url": "/img/xray-inner.avif",
+        "bytes": 162398
+      },
+      {
+        "width": 1200,
+        "url": "/img/xray-inner-1200.avif",
+        "bytes": 63884
+      }
+    ]
   }
 }

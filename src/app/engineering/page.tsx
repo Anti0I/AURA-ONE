@@ -245,24 +245,55 @@ export default function EngineeringPage() {
         </P>
       </Section>
 
-      <Section title="Four finishes, one render">
+      <Section title="One scene, rendered two ways">
         <P>
-          The sequence is rendered in neutral grey and recoloured while drawing:
-          a brightness/contrast pass, a fill in{" "}
-          <Code>color</Code> blend mode, an <Code>overlay</Code> pass to restore
-          the gloss, then <Code>destination-in</Code> to clip back to the
-          artwork&rsquo;s own alpha. Adding a finish costs an object in a data
-          file rather than another 240 frames.
+          The configurator runs the scene live, because a pre-rendered
+          turntable spins about one axis and cannot do anything else. Covering
+          both axes as frames means an azimuth-by-elevation matrix — roughly
+          6.5 MB for five discrete camera heights, which still is not the same
+          thing as being able to look from anywhere.
         </P>
         <P>
-          The interesting failure: &ldquo;Matte Obsidian&rdquo; first shipped as
-          polished silver. The <Code>color</Code> blend mode takes hue and
-          saturation from the source and luminosity from the{" "}
-          <em>backdrop</em> — it cannot darken anything. Filling a bright chrome
-          render with near-black produces bright chrome and an imperceptible hue
-          shift. Lightness now comes from an explicit per-finish exposure, and a
-          test measures mean canvas luminance so a dark finish has to be
-          genuinely darker rather than merely different.
+          So the geometry has one definition and two renderers: baked offline
+          for the walkthrough, where deterministic frames and a decode cost you
+          can budget are what matter, and live here, where free interaction is.
+          Change the shell and both change. three.js is ~135 KB gzipped and
+          lands only in this section&rsquo;s chunk, so the first load is
+          unchanged — but weight hiding in a lazy chunk is still weight, and the
+          budget gate now has a ceiling on every chunk the build emits, not just
+          the ones the document references.
+        </P>
+        <P>
+          It draws only while on screen. An idle spin has no natural end, so
+          without that it would keep rendering at the display&rsquo;s refresh
+          rate several sections further down the page and in a background tab —
+          spending someone&rsquo;s battery to animate what nobody is looking at.
+        </P>
+
+        <H3>The composite it replaced, which is still the fallback</H3>
+        <P>
+          Without WebGL the section falls back to the still sequence, recoloured
+          while drawing: a brightness/contrast pass, a fill in{" "}
+          <Code>color</Code> blend mode, an <Code>overlay</Code> pass to restore
+          the gloss, then <Code>destination-in</Code> to clip back to the
+          artwork&rsquo;s own alpha.
+        </P>
+        <P>
+          That path is where the most useful thing this project learned about
+          canvas lives. &ldquo;Matte Obsidian&rdquo; first shipped as polished
+          silver, because <Code>color</Code> takes hue and saturation from the
+          source and luminosity from the <em>backdrop</em> — it cannot darken
+          anything. Filling a bright chrome render with near-black produces
+          bright chrome and an imperceptible hue shift. Lightness comes from an
+          explicit per-finish exposure instead, and a test measures mean canvas
+          luminance so a dark finish has to be genuinely darker rather than
+          merely different.
+        </P>
+        <P>
+          Which is also why the fallback is detected by constructing a context
+          rather than by asking whether the API exists, and why the live view
+          reports its own failure: the machines that matter are the ones that
+          claim WebGL and then decline to hand one over.
         </P>
       </Section>
 

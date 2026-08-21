@@ -26,7 +26,7 @@ npm run dev              # Next 16 dev server, Turbopack
 npm run verify           # typecheck + lint + 17 unit tests — run before every commit
 npm run build            # production build
 npm run audit:budget     # asset + JS budget gate; needs a build first
-npm run test:e2e         # 34 Playwright tests, desktop + mobile projects
+npm run test:e2e         # 40 Playwright tests, desktop + mobile projects (~6 min)
 npm run test:a11y        # 12 axe / keyboard / reduced-motion tests
 npm run assets:all       # regenerate every asset from primitives (~4 min; needs ffmpeg)
 node scripts/shoot.mjs   # screenshot the stage at five scroll positions
@@ -63,9 +63,10 @@ These are the ones that cause silent breakage rather than an error.
 4. **Frames decode to the size they will be drawn**, not the size they were
    encoded. A bitmap costs the same whether or not the detail is visible.
 
-5. **The shell renders neutral grey.** Every finish is a canvas composite at
-   draw time. Baking a colour into the render means re-rendering 240 frames per
-   variant.
+5. **The shell renders neutral grey in the baked frames.** The walkthrough is
+   a frame sequence, so a colour baked into the render means re-rendering all
+   240 per variant. The live configurator overrides it through
+   `setFinish`; the no-WebGL fallback composites it at draw time.
 
    And: **the two frame sources must stay interchangeable.** `video.worker.ts`
    and `decoder.worker.ts` speak one protocol and both return `ImageBitmap`s
@@ -121,7 +122,20 @@ is nothing ahead left to do.
 **Lenis owns the scroll position, so tests must not jump.** A programmatic
 `window.scrollTo` gets pulled back towards Lenis's own target, and a test that
 jumps is measuring somewhere other than where it thinks it is. That produced a
-very convincing screenshot of the wrong frame. Drive with `mouse.wheel`.
+very convincing screenshot of the wrong frame. Drive with `mouse.wheel`, and
+converge rather than aiming once — the inertial tail overshoots a single
+impulse.
+
+**Anything with an idle animation must stop when off screen.** The configurator
+renders a live scene, and an idle spin has no natural end: without the
+visibility gate it kept drawing at the refresh rate several sections up the page
+and in a background tab. It also starved the test suite badly enough to fail
+unrelated tests, which is the cheaper way to find out.
+
+**The e2e suite runs two workers on purpose.** Each one decodes a 2896x1440 VP9
+stream or renders three.js through software WebGL while reading pixels back. One
+worker per core starves them, and starvation looks exactly like the regressions
+the tests exist to catch.
 
 **Boot progress must be measured, not counted.** A resize bumps the decoder's
 generation and the worker discards everything in flight, so counting replies
@@ -181,6 +195,7 @@ src/lib/
   motion.ts                 cached environment probes; utils.ts: cn, damp, clamp, easings
 
 src/components/             one directory per section, plus ui/, palette/, devhud/
+  configurator/             ConfiguratorLive (WebGL) + ConfiguratorFallback (stills)
 src/data/                   specs, materials, story timing, author, generated manifests
 src/store/                  useAppStore (Zustand, discrete) + transient (per-frame)
 ```
@@ -291,6 +306,7 @@ with slack in it is a budget nobody respects.
 | Asset | Budget | Current |
 | --- | --- | --- |
 | First-load JS (gzip) | 180 KB | ~163 KB |
+| All JS chunks (gzip) | 420 KB | 358 KB |
 | Desktop video | 3.70 MB | 3.34 MB / 240 frames |
 | Mobile video | 1.50 MB | 1.36 MB / 240 frames |
 | Desktop still fallback | 5.00 MB | 4.54 MB / 120 frames |
@@ -320,5 +336,10 @@ browser downloads.
 ## Known items
 
 - `src/data/author.ts` still holds placeholder GitHub and LinkedIn URLs.
+- `assets-src/device/scene.mjs` is imported by the app through the `@device/*`
+  alias and typed by a hand-written `scene.d.mts`. It stays plain ESM because
+  the prerender harness serves it straight to headless Chromium through an
+  import map; converting it to TypeScript would put a bundler back in the render
+  path.
 - The dev-only `window.__player` handle in `Stage.tsx` exists for
   `scripts/shoot.mjs` and devtools poking. It is stripped in production.

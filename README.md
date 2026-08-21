@@ -83,6 +83,7 @@ with slack in it is a budget nobody respects.
 | Desktop still fallback | 5.00 MB | 4.54 MB · 120 frames |
 | Mobile still fallback | 1.70 MB | 1.51 MB · 60 frames |
 | Peak frame, desktop | 100 KB | 91.2 KB |
+| All JS chunks (gzip) | 420 KB | 358 KB |
 | X-Ray pair @2400px | 240 KB | 189 KB |
 | Noise tile | 6 KB | 4.1 KB |
 | Audio files | 0 | 0 — everything is synthesised |
@@ -130,9 +131,16 @@ progress is one `getBoundingClientRect` per frame, read before anything has
 written to the DOM. One animation loop with priority-ordered subscribers, so
 scroll commits before anything draws with it.
 
-**Four finishes from one grey render.** Recoloured at draw time with a
-brightness pass, a `color` blend, an `overlay` pass and a `destination-in` clip.
-Adding a finish costs an object in a data file.
+**One scene, rendered two ways.** The configurator runs the procedural scene
+live — the same one the walkthrough is baked from — because a pre-rendered
+turntable spins about one axis and turning the product over is the point. three.js
+is ~135 KB gzip and lands only in that section's chunk, so the first load is
+unchanged; a separate budget watches every chunk so weight cannot hide in a lazy
+one. It draws only while on screen, because an idle spin has no natural end.
+
+**The composite it replaced is the no-WebGL fallback.** The grey frame sequence
+recoloured at draw time with a brightness pass, a `color` blend, an `overlay`
+pass and a `destination-in` clip.
 
 **All audio is synthesised**, ambient bed included. No files, no licences,
 nothing to preload, and a hover tick that can be pitched per element — which a
@@ -165,6 +173,7 @@ assets-src/device/     procedural Three.js scene + texture generators
 scripts/               prerender, encode, budget audit, screenshots
 src/lib/canvas/        frame player, both source workers, IVF reader, matte shader, LRU
 src/lib/scroll/        one rAF bus, Lenis integration, section progress
+assets-src/device/     the scene, imported live by the configurator
 src/lib/audio/         AudioContext bus, everything synthesised
 src/components/        one directory per section
 src/data/              product data, story timing, generated manifests
