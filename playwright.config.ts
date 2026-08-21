@@ -6,12 +6,13 @@ export default defineConfig({
   // those files up and fails on the first `vitest` import.
   testMatch: ["e2e/**/*.spec.ts", "a11y/**/*.spec.ts"],
   fullyParallel: true,
-  // These tests are decoder-bound, not I/O-bound: each one runs a browser
-  // decoding a 2896x1440 VP9 stream and reading pixels back off a canvas. One
-  // worker per core starves all of them, and the symptom is not a clean failure
-  // — it is a scrub that looks coarse because frames did not arrive in time,
-  // which is indistinguishable from the regression those tests exist to catch.
-  workers: process.env.CI ? 2 : 3,
+  // Two, deliberately. Each of these runs a browser decoding a 2896x1440 VP9
+  // stream, or rendering a three.js scene through software WebGL, while reading
+  // pixels back off a canvas. One worker per core starves all of them, and the
+  // symptom is not a clean failure — it is a scrub that looks coarse because
+  // frames did not arrive in time, which is indistinguishable from the
+  // regression these tests exist to catch.
+  workers: 2,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",

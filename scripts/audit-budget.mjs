@@ -39,6 +39,16 @@ const BUDGETS = {
   noise: 6 * KB,
   /** First-load JS for "/", gzipped, excluding the frame sequence. */
   firstLoadJs: 180 * KB,
+  /**
+   * Every JS chunk the build produces, gzipped.
+   *
+   * First-load alone stopped being the whole story once the configurator
+   * started pulling in three.js: ~135 KB gzip that correctly does not count
+   * against first load, because it is fetched when that section mounts. Real
+   * weight hiding in a lazy chunk is still real weight, and a budget that only
+   * watches the first load is an invitation to move things out of it.
+   */
+  totalJs: 420 * KB,
 };
 
 const results = [];
@@ -158,6 +168,25 @@ if (fs.existsSync(htmlPath)) {
     gz += gzipSync(await fsp.readFile(file)).length;
   }
   check(`first-load JS (${refs.size - missing} chunks)`, gz, BUDGETS.firstLoadJs);
+
+  // Everything the build emits, lazy chunks included.
+  const chunkDir = path.join(ROOT, ".next", "static", "chunks");
+  if (fs.existsSync(chunkDir)) {
+    let total = 0;
+    let count = 0;
+    const walk = async (dir) => {
+      for (const entry of await fsp.readdir(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) await walk(full);
+        else if (entry.name.endsWith(".js")) {
+          total += gzipSync(await fsp.readFile(full)).length;
+          count++;
+        }
+      }
+    };
+    await walk(chunkDir);
+    check(`all JS chunks (${count})`, total, BUDGETS.totalJs);
+  }
 } else {
   skip("first-load JS", "no .next build — run npm run build first");
 }

@@ -1,9 +1,17 @@
 /**
  * Configurator finishes.
  *
- * The frame sequence is rendered once, in neutral grey. Each finish is applied
- * at draw time as a two-pass canvas composite (see lib/canvas/tint.ts), so
- * adding a colour costs one object here — not 120 more renders.
+ * Each finish is described twice, because it is rendered two ways.
+ *
+ * `color`/`metalness`/`roughness` drive the live WebGL configurator, where the
+ * shell is a real material under a real environment map. The `tint`/`sheen`/
+ * `exposure`/`contrast` group drives the canvas composite used by the
+ * no-WebGL fallback, which recolours the neutral-grey frame sequence at draw
+ * time.
+ *
+ * Two descriptions of one thing is a duplication worth having: the alternative
+ * is either shipping no fallback, or shipping a fallback that quietly shows the
+ * wrong colour. Adding a finish still costs one object here and nothing else.
  */
 export const MATERIAL_IDS = [
   "obsidian",
@@ -18,6 +26,14 @@ export interface Material {
   id: MaterialId;
   name: string;
   code: string;
+
+  /** Base colour of the shell in the live scene. */
+  color: string;
+  /** 1 is a mirror-finish metal, 0 a dielectric. */
+  metalness: number;
+  /** 0 is a perfect mirror, 1 fully diffuse. */
+  roughness: number;
+
   /** Target hue and saturation, applied with `globalCompositeOperation: "color"`. */
   tint: string;
   /** How much specular detail the overlay pass puts back, 0..1. */
@@ -46,6 +62,9 @@ export const MATERIALS: readonly Material[] = [
     id: "obsidian",
     name: "Matte Obsidian",
     code: "AO-01",
+    color: "#17171b",
+    metalness: 0.62,
+    roughness: 0.58,
     tint: "#16161a",
     sheen: 0.28,
     exposure: 0.42,
@@ -56,6 +75,9 @@ export const MATERIALS: readonly Material[] = [
     id: "titanium",
     name: "Titanium Frost",
     code: "AO-02",
+    color: "#b9bdc5",
+    metalness: 0.98,
+    roughness: 0.34,
     tint: "#b8bcc4",
     sheen: 0.74,
     exposure: 1.06,
@@ -66,6 +88,9 @@ export const MATERIALS: readonly Material[] = [
     id: "amber",
     name: "Cosmic Amber",
     code: "AO-03",
+    color: "#c2853c",
+    metalness: 0.9,
+    roughness: 0.3,
     tint: "#c88a3e",
     sheen: 0.52,
     exposure: 0.86,
@@ -76,6 +101,9 @@ export const MATERIALS: readonly Material[] = [
     id: "signalwhite",
     name: "Signal White",
     code: "AO-04",
+    color: "#e9e9ed",
+    metalness: 0.12,
+    roughness: 0.44,
     tint: "#e8e8ec",
     sheen: 0.6,
     exposure: 1.2,

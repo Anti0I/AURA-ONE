@@ -5,12 +5,21 @@
  * file, no HDRI and no texture on disk. That is deliberate. It keeps the repo
  * asset-free, makes the render reproducible on any machine, and means the
  * Blender drop-in later only has to match the *output* contract
- * (120 square RGBA frames + two matched stills), not this file.
+ * (240 square RGBA frames + two matched stills), not this file.
  *
- * The stage exposes three operations to the prerender script:
+ * It is also rendered live, by the configurator, which is why the finish and
+ * the orbit are operations here rather than something the page does over the
+ * top of a picture.
+ *
+ * The stage exposes to the prerender script:
  *   setSize(w, h)      resize the renderer
  *   renderFrame(t)     draw the scrollytelling timeline at t in 0..1
  *   renderXray(mode)   draw the matched X-Ray pair from one fixed camera
+ *
+ * …and to the configurator:
+ *   orbit(az, el)      look at the assembled device from any direction
+ *   setFinish(m)       recolour the shell
+ *   dispose()          release the context
  */
 
 import * as THREE from "three";
@@ -115,9 +124,9 @@ export function createStage(canvas) {
   scene.add(fill);
 
   // ---- Materials ---------------------------------------------------------
-  // The shell is neutral grey on purpose: every finish in the configurator is
-  // a canvas composite over these frames, so baking a colour here would mean
-  // re-rendering 120 frames per variant.
+  // The shell is neutral grey on purpose: the walkthrough is baked to frames,
+  // so a colour baked in here would mean re-rendering all 240 of them per
+  // variant. `setFinish` overrides it for the live configurator.
   const brushedTex = canvasTexture(brushedRoughnessTexture(42));
   brushedTex.colorSpace = THREE.NoColorSpace; // roughness is data, not colour
   brushedTex.repeat.set(1, 1);
@@ -437,7 +446,12 @@ export function createStage(canvas) {
   const _chipTarget = new THREE.Vector3();
   const _local = new THREE.Vector3();
 
-  function setSize(w, h) {
+  function setSize(w, h, pixelRatio = 1) {
+    // The prerender wants exactly the pixels it asked for; the live
+    // configurator wants the display's device pixel ratio, capped, because a
+    // 3x phone would otherwise render nine times the fragments for a panel
+    // that cannot show the difference.
+    renderer.setPixelRatio(Math.min(pixelRatio, 2));
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -512,6 +526,65 @@ export function createStage(canvas) {
   function renderFrame(t) {
     applyTimeline(clamp01(t));
     renderer.render(scene, camera);
+  }
+
+  // ---- Live configurator -------------------------------------------------
+  // The same scene, rendered a second way. Offline it is baked to a frame
+  // sequence, because the walkthrough needs deterministic frames and a decode
+  // cost you can budget. Here it runs live, because a turntable of frames can
+  // only ever spin about one axis and the configurator has to go anywhere.
+  //
+  // One source of truth for the geometry either way: change the shell and both
+  // the film and the object you can turn change with it.
+
+  const ORBIT_RADIUS = CAM_HOME.length();
+
+  /**
+   * Points the camera at the assembled device from an arbitrary direction.
+   *
+   * `azimuth` and `elevation` are in radians. Elevation is clamped by the
+   * caller, not here — this is the primitive, and the policy about how far over
+   * the top you may tip belongs with the thing handling the drag.
+   */
+  function orbit(azimuth, elevation, distance = 1) {
+    // t = 0 is the assembled pose with no rotation applied, which is what the
+    // orbit is defined relative to. It also resets whatever the last render
+    // left behind, so this stays a pure function of its arguments.
+    applyTimeline(0);
+
+    const radius = ORBIT_RADIUS * distance;
+    const polar = Math.PI / 2 - elevation;
+    camera.position.set(
+      radius * Math.sin(polar) * Math.sin(azimuth),
+      radius * Math.cos(polar),
+      radius * Math.sin(polar) * Math.cos(azimuth),
+    );
+    camera.lookAt(LOOK_HOME);
+    renderer.render(scene, camera);
+  }
+
+  /**
+   * Recolours the shell.
+   *
+   * Only the outer shell: the driver, the board and the cell are the same parts
+   * whatever the finish, and tinting them too is how a configurator starts
+   * looking like a colour filter over a photograph.
+   */
+  function setFinish({ color, metalness, roughness }) {
+    shellMat.color.set(color);
+    shellMat.metalness = metalness;
+    shellMat.roughness = roughness;
+  }
+
+  function dispose() {
+    pmrem.dispose();
+    scene.traverse((object) => {
+      if (object.isMesh) {
+        object.geometry.dispose();
+        for (const material of [].concat(object.material)) material.dispose();
+      }
+    });
+    renderer.dispose();
   }
 
   // ---- X-Ray pair --------------------------------------------------------
@@ -611,5 +684,14 @@ export function createStage(canvas) {
     return out;
   }
 
-  return { renderer, setSize, renderFrame, renderXray, getHotspots };
+  return {
+    renderer,
+    setSize,
+    renderFrame,
+    renderXray,
+    getHotspots,
+    orbit,
+    setFinish,
+    dispose,
+  };
 }
