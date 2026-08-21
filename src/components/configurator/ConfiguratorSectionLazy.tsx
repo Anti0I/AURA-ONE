@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { LazySection } from "@/components/ui/LazySection";
 
-/** Code-split wrapper; pdf-lib in particular has no business in the first load. */
+/** Code-split wrapper: the configurator paints nothing above the fold. */
 const ConfiguratorSection = dynamic(
   () => import("./ConfiguratorSection").then((m) => m.ConfiguratorSection),
   { ssr: false },

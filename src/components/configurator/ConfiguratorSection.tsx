@@ -12,7 +12,6 @@ import { tick } from "@/lib/audio/synth";
 import { cn } from "@/lib/utils";
 import type { SequenceManifest } from "@/types/sequence";
 import { SectionLabel } from "@/components/ui/SectionLabel";
-import { BentoGrid } from "@/components/bento/BentoGrid";
 
 const SEQUENCE = manifest as SequenceManifest;
 
@@ -212,8 +211,6 @@ export function ConfiguratorSection() {
           </p>
         </div>
       </div>
-
-      <BentoGrid />
     </section>
   );
 }

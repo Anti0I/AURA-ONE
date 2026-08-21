@@ -151,7 +151,6 @@ src/lib/
   scroll/                   rafBus (the one loop), scrollEngine (Lenis), useSectionProgress
   audio/                    AudioBus, synth (everything is synthesised)
   perf/                     fpsMeter
-  pdf/                      spec-sheet (pdf-lib, dynamically imported)
   motion.ts                 cached environment probes; utils.ts: cn, damp, clamp, easings
 
 src/components/             one directory per section, plus ui/, palette/, devhud/

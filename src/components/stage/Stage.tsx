@@ -218,7 +218,7 @@ export function Stage() {
           </div>
         ))}
 
-        <SpecFlash ref={specRef} specs={SPECS.filter((s) => s.featured)} />
+        <SpecFlash ref={specRef} specs={SPECS} />
         <ProgressRail ref={railRef} />
       </div>
     </section>

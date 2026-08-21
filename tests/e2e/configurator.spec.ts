@@ -104,32 +104,3 @@ test("the spin can be dragged", async ({ page }) => {
     before,
   );
 });
-
-test("the data sheet is generated in the browser", async ({ page }) => {
-  await openConfigurator(page);
-
-  const download = page.waitForEvent("download", { timeout: 30_000 });
-  await page.getByRole("button", { name: /Download .* PDF/ }).click();
-  const file = await download;
-
-  // Named after the selected finish, so two downloads are distinguishable.
-  expect(file.suggestedFilename()).toMatch(/^aura-one-ao-0\d\.pdf$/);
-});
-
-test("the battery tile recomputes from the power model", async ({ page }) => {
-  await openConfigurator(page);
-
-  const tile = page.locator("section", { hasText: "Inference share" }).last();
-  const slider = tile.getByRole("slider");
-
-  const before = await tile.textContent();
-  await slider.fill("90");
-  await page.waitForTimeout(300);
-  const after = await tile.textContent();
-
-  expect(after).not.toBe(before);
-  // More inference means less runtime, always.
-  const hours = (text: string | null) =>
-    Number(text?.match(/([\d.]+)\s*hours/)?.[1] ?? NaN);
-  expect(hours(after)).toBeLessThan(hours(before));
-});

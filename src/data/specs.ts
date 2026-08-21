@@ -1,7 +1,13 @@
 /**
- * Product specification. Fictional hardware, plausible numbers — every figure
- * is internally consistent with the others (the battery curve in the bento
- * grid is integrated from `power`, not made up separately).
+ * Product specification. Fictional hardware, plausible numbers.
+ *
+ * Only the rows something actually renders live here. There used to be a power
+ * model underneath this — a battery capacity, per-mode draw figures and a
+ * runtime integrator — feeding an interactive tile, a generated PDF and a
+ * scripted AI answer. It was internally consistent and it was still invented,
+ * and an invented number presented as a measurement is the one thing a
+ * portfolio piece cannot afford. What survives is what the walkthrough puts on
+ * screen, and nothing else.
  */
 
 export const PRODUCT = {
@@ -15,63 +21,13 @@ export interface SpecRow {
   label: string;
   value: string;
   unit?: string;
-  /** Shown in the scrollytelling close-up on the silicon. */
-  featured?: boolean;
 }
 
+/** Flashed up at the bottom of the dive into the silicon. */
 export const SPECS: readonly SpecRow[] = [
-  { label: "Neural core", value: "AURA N1", featured: true },
-  { label: "Clock", value: "2.4", unit: "GHz", featured: true },
-  { label: "Inference", value: "18", unit: "TOPS", featured: true },
-  { label: "On-die memory", value: "48", unit: "MB SRAM" },
-  { label: "Round-trip latency", value: "4.2", unit: "ms", featured: true },
-  { label: "Radio", value: "BLE 5.4 + UWB" },
-  { label: "Transfer", value: "2.1", unit: "Mbps" },
-  { label: "Microphones", value: "4", unit: "× MEMS" },
-  { label: "Driver", value: "10", unit: "mm planar" },
-  { label: "Frequency response", value: "5 Hz – 40 kHz" },
-  { label: "Battery", value: "78", unit: "mAh Li-Si" },
-  { label: "Mass", value: "12", unit: "g", featured: true },
-  { label: "Ingress rating", value: "IP57" },
+  { label: "Neural core", value: "AURA N1" },
+  { label: "Clock", value: "2.4", unit: "GHz" },
+  { label: "Inference", value: "18", unit: "TOPS" },
+  { label: "Round-trip latency", value: "4.2", unit: "ms" },
+  { label: "Mass", value: "12", unit: "g" },
 ] as const;
-
-/**
- * Power draw per operating mode, in milliwatts. The battery tile integrates
- * these against `batteryMilliampHours` to produce its curve.
- */
-export const POWER_MODES = [
-  { id: "idle", label: "Standby", mw: 6 },
-  { id: "playback", label: "Playback", mw: 27 },
-  { id: "anc", label: "Adaptive ANC", mw: 37 },
-  { id: "inference", label: "On-device inference", mw: 65 },
-] as const;
-
-export type PowerModeId = (typeof POWER_MODES)[number]["id"];
-
-export const BATTERY = {
-  milliampHours: 78,
-  nominalVolts: 3.85,
-  get milliwattHours() {
-    return this.milliampHours * this.nominalVolts;
-  },
-} as const;
-
-/**
- * Runtime in hours for a given average draw.
- *
- * Every battery figure on the site comes through here — the bento slider, the
- * playground scenario, the generated PDF. Quoting hours in one place and
- * milliwatts in another is how a spec sheet ends up contradicting itself.
- */
-export function runtimeHours(milliwatts: number): number {
-  return BATTERY.milliwattHours / milliwatts;
-}
-
-/** Average draw for a duty cycle expressed as fractions summing to 1. */
-export function averageDraw(mix: Partial<Record<PowerModeId, number>>): number {
-  let total = 0;
-  for (const mode of POWER_MODES) {
-    total += mode.mw * (mix[mode.id] ?? 0);
-  }
-  return total;
-}

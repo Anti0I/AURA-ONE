@@ -30,7 +30,6 @@ const BUDGETS = {
   // Only the pair the viewport actually loads. The inner still is the
   // expensive one: a thin high-contrast wireframe is the worst case for AVIF.
   xrayPair: 240 * KB,
-  audio: 300 * KB,
   noise: 6 * KB,
   /** First-load JS for "/", gzipped, excluding the frame sequence. */
   firstLoadJs: 180 * KB,
@@ -43,7 +42,11 @@ function check(name, actual, budget, unit = "KB") {
   const ok = actual <= budget;
   if (!ok) failed++;
   const fmt = (v) =>
-    unit === "MB" ? `${(v / MB).toFixed(2)} MB` : `${(v / KB).toFixed(1)} KB`;
+    unit === "MB"
+      ? `${(v / MB).toFixed(2)} MB`
+      : unit === "count"
+        ? String(v)
+        : `${(v / KB).toFixed(1)} KB`;
   results.push({
     ok,
     name,
@@ -88,18 +91,13 @@ if (fs.existsSync(manifestPath)) {
 }
 
 // ---- Audio ----------------------------------------------------------------
-// The ambient bed is the only audio file the site ships; every UI sound is
-// synthesised in WebAudio, so this directory stays close to empty by design.
+// Every sound on this site is synthesised in WebAudio, ambient bed included.
+// This used to be a size budget against an ambient file that was never shipped,
+// which made it a permanent SKIP — a guard that can never fire is decoration.
+// It now enforces the actual rule: zero audio bytes.
 const audioDir = path.join(PUBLIC, "audio");
-if (fs.existsSync(audioDir)) {
-  let total = 0;
-  for (const f of await fsp.readdir(audioDir)) {
-    total += (await fsp.stat(path.join(audioDir, f))).size;
-  }
-  check("audio", total, BUDGETS.audio);
-} else {
-  skip("audio", "no ambient bed yet (UI sounds are synthesised)");
-}
+const audioFiles = fs.existsSync(audioDir) ? await fsp.readdir(audioDir) : [];
+check("audio files (all synthesised)", audioFiles.length, 0, "count");
 
 // ---- Noise tile -----------------------------------------------------------
 const noisePath = path.join(PUBLIC, "noise.png");
@@ -113,8 +111,8 @@ if (fs.existsSync(noisePath)) {
 // Read off the prerendered HTML rather than out of a Next internal manifest:
 // the chunks the document actually references are, by definition, what the
 // browser downloads before the page is interactive. It also means lazily
-// imported work (pdf-lib, the WebGPU engine) correctly does *not* count — which
-// is the whole reason those are dynamic imports.
+// imported work (the lazy sections below the fold) correctly does *not* count —
+// which is the whole reason those are dynamic imports.
 const htmlPath = path.join(ROOT, ".next", "server", "app", "index.html");
 if (fs.existsSync(htmlPath)) {
   const html = await fsp.readFile(htmlPath, "utf8");
