@@ -19,8 +19,28 @@ async function openConfigurator(page: Page) {
     );
     await page.waitForTimeout(250);
   }
-  await page.waitForSelector("#configurator [data-product-stage]", { timeout: 30_000 });
-  await page.waitForTimeout(1500);
+  await page.waitForSelector("#configurator [data-product-stage]", {
+    timeout: 30_000,
+  });
+  // Wait for the first frame to actually decode and draw, rather than for a
+  // fixed number of milliseconds. Under a parallel test run the decode can take
+  // several times longer than it does on an idle machine, and a sleep tuned to
+  // the idle case is a test that passes alone and fails in CI.
+  await waitFor(page, (v) => v !== null);
+}
+
+/** Polls `meanLuminance` until `predicate` holds, or gives up. */
+async function waitFor(
+  page: Page,
+  predicate: (value: number | null) => boolean,
+  attempts = 60,
+) {
+  for (let i = 0; i < attempts; i++) {
+    const value = await meanLuminance(page);
+    if (predicate(value)) return value;
+    await page.waitForTimeout(120);
+  }
+  return meanLuminance(page);
 }
 
 /** Mean luminance of the drawn pixels, ignoring the transparent background. */
@@ -47,13 +67,13 @@ async function meanLuminance(page: Page) {
 test("the finish changes what is drawn", async ({ page }) => {
   await openConfigurator(page);
 
+  const before = await meanLuminance(page);
+
   await page.getByRole("button", { name: /Signal White/ }).click();
-  await page.waitForTimeout(900);
-  const pale = await meanLuminance(page);
+  const pale = await waitFor(page, (v) => v !== null && v !== before);
 
   await page.getByRole("button", { name: /Matte Obsidian/ }).click();
-  await page.waitForTimeout(900);
-  const dark = await meanLuminance(page);
+  const dark = await waitFor(page, (v) => v !== null && v !== pale);
 
   expect(pale, "no drawn pixels sampled").not.toBeNull();
   expect(dark).not.toBeNull();
@@ -79,9 +99,10 @@ test("the spin can be dragged", async ({ page }) => {
     steps: 20,
   });
   await page.mouse.up();
-  await page.waitForTimeout(700);
 
-  expect(await meanLuminance(page)).not.toBe(before);
+  expect(await waitFor(page, (v) => v !== null && v !== before)).not.toBe(
+    before,
+  );
 });
 
 test("the data sheet is generated in the browser", async ({ page }) => {

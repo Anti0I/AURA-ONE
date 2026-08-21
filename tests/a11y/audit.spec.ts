@@ -119,3 +119,15 @@ test("reduced motion is honoured", async ({ browser }) => {
 
   await context.close();
 });
+
+test("the engineering notes pass an axe audit", async ({ page }) => {
+  await page.goto("/engineering");
+  await expect(
+    page.getByRole("heading", { name: /What is actually going on/ }),
+  ).toBeVisible();
+
+  // A long-form document is where contrast regressions surface first: it has
+  // more type at more sizes than anything else on the site.
+  const results = await analyse(page);
+  expect(describe(results)).toBe("");
+});
