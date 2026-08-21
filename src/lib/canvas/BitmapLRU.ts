@@ -21,7 +21,19 @@ export class BitmapLRU {
   private bytes = 0;
   private guarded: ReadonlySet<number> = new Set();
 
-  constructor(public capacity: number) {}
+  /**
+   * @param capacity  Maximum frames retained.
+   * @param maxBytes  Maximum decoded pixels retained.
+   *
+   * Both, because a frame count alone is not a memory budget. The same 24
+   * frames are 39 MB decoded at 640² and 199 MB at 1440², so a cache sized by
+   * count is either wasteful on a laptop or dangerous on a 4K display — and it
+   * is the second one you find out about, from somebody else's machine.
+   */
+  constructor(
+    public capacity: number,
+    public maxBytes = Infinity,
+  ) {}
 
   get size() {
     return this.entries.size;
@@ -80,7 +92,11 @@ export class BitmapLRU {
   }
 
   private evict() {
-    while (this.entries.size > this.capacity) {
+    while (this.entries.size > this.capacity || this.bytes > this.maxBytes) {
+      // Never evict below the guarded window, whatever the byte budget says.
+      // Undershooting the prefetch window guarantees a blank frame; being a
+      // few megabytes over the budget for a moment does not.
+      if (this.entries.size <= this.guarded.size) return;
       let victim = -1;
       let oldest = Infinity;
       for (const [index, entry] of this.entries) {

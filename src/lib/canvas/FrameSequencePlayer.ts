@@ -9,8 +9,18 @@ import type { Material } from "@/data/materials";
 import { frameUrl, type DecodeResponse, type SequenceVariant } from "@/types/sequence";
 
 export interface PlayerOptions {
-  /** How many decoded frames to retain. 24 ≈ 60–80 MB at typical sizes. */
+  /** Maximum decoded frames retained. */
   cacheSize?: number;
+  /**
+   * Maximum decoded pixels retained, in bytes.
+   *
+   * The binding constraint on a large display, and the reason a frame count on
+   * its own is not a memory budget: the same 24 frames are 39 MB decoded at
+   * 640² and 199 MB at 1440². Sized by count alone the cache is either
+   * wasteful on a laptop or dangerous on a 4K panel — and it is the second one
+   * you hear about, from somebody else's machine.
+   */
+  maxCacheBytes?: number;
   /** Frames to request ahead of the playhead, in the direction of travel. */
   lookAhead?: number;
   /** Frames to keep behind it, for scroll reversals. */
@@ -88,6 +98,7 @@ export class FrameSequencePlayer {
 
     this.opts = {
       cacheSize: options.cacheSize ?? 24,
+      maxCacheBytes: options.maxCacheBytes ?? 120 * 1024 * 1024,
       lookAhead: options.lookAhead ?? 10,
       lookBehind: options.lookBehind ?? 4,
       damping: options.damping ?? 22,
@@ -95,7 +106,7 @@ export class FrameSequencePlayer {
       reportTelemetry: options.reportTelemetry ?? false,
     };
 
-    this.cache = new BitmapLRU(this.opts.cacheSize);
+    this.cache = new BitmapLRU(this.opts.cacheSize, this.opts.maxCacheBytes);
   }
 
   get frameCount() {

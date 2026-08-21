@@ -17,11 +17,17 @@
   --color-line-strong: #2c2c35;
 
   /* --- Text ---------------------------------------------------------------
-     Contrast against --color-void: text 15.9:1, dim 7.8:1, faint 3.8:1.
-     `faint` is for >=24px or non-text only -- it does not pass AA for body. */
+     Contrast against --color-void: ink 15.9:1, dim 7.8:1, faint 5.3:1.
+     All three clear AA for body text, and `faint` still clears it against the
+     lightest surface it ever sits on (--color-raised, 4.96:1).
+
+     `faint` started two steps darker, which read better and failed AA at
+     3.7:1. It is used by `.rule-label` -- the monospaced eyebrow that appears
+     on nearly every section -- so "decorative, exempt" was never true of it.
+     The axe run in tests/a11y is what settled the argument. */
   --color-ink: #ededf0;
   --color-ink-dim: #a1a1ab;
-  --color-ink-faint: #6e6e79;
+  --color-ink-faint: #838391;
 
   /* --- Accents ------------------------------------------------------------
      Two accents with strict roles:

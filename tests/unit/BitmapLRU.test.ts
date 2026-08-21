@@ -110,3 +110,33 @@ describe("BitmapLRU", () => {
     for (const b of bitmaps) expect(b.close).toHaveBeenCalledOnce();
   });
 });
+
+describe("BitmapLRU byte budget", () => {
+  it("evicts on bytes even when the frame count is fine", () => {
+    // 24 frames is 39 MB at a 640 decode and 199 MB at 1440. A cache sized
+    // only by count silently becomes the second one on a 4K display.
+    const cache = new BitmapLRU(24, 40 * 1024 * 1024);
+    for (let i = 0; i < 24; i++) cache.set(i, fakeBitmap(), 8 * 1024 * 1024);
+
+    expect(cache.size).toBeLessThan(24);
+    expect(cache.byteLength).toBeLessThanOrEqual(40 * 1024 * 1024);
+  });
+
+  it("keeps the guarded window even over the byte budget", () => {
+    // Undershooting the prefetch window guarantees a blank frame; being a few
+    // megabytes over for a moment does not.
+    const cache = new BitmapLRU(24, 8 * 1024 * 1024);
+    const guarded = new Set([0, 1, 2, 3]);
+    cache.protect(guarded);
+    for (const i of guarded) cache.set(i, fakeBitmap(), 8 * 1024 * 1024);
+
+    expect(cache.size).toBe(4);
+    for (const i of guarded) expect(cache.has(i)).toBe(true);
+  });
+
+  it("defaults to no byte limit", () => {
+    const cache = new BitmapLRU(4);
+    for (let i = 0; i < 4; i++) cache.set(i, fakeBitmap(), 1e9);
+    expect(cache.size).toBe(4);
+  });
+});

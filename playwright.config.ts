@@ -15,7 +15,10 @@ export default defineConfig({
     { name: "mobile", use: { ...devices["Pixel 7"] } },
   ],
   webServer: {
-    command: "npm run build && npm run start",
+    // CI builds once as its own step, so re-running the build here would
+    // double the slowest part of the pipeline for no benefit. Locally, a
+    // running `npm run dev` is reused and otherwise a build happens on demand.
+    command: process.env.CI ? "npm run start" : "npm run build && npm run start",
     url: "http://localhost:3000",
     reuseExistingServer: !process.env.CI,
     timeout: 300_000,

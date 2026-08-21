@@ -62,6 +62,7 @@ export function Stage() {
       // Mobile ships half the frames, so a matched look-ahead in *seconds* of
       // scrolling is half the count. Same window in time, half the memory.
       cacheSize: tier === "mobile" ? 16 : 24,
+      maxCacheBytes: (tier === "mobile" ? 44 : 120) * 1024 * 1024,
       lookAhead: tier === "mobile" ? 6 : 10,
       reportTelemetry: true,
     });

@@ -49,6 +49,7 @@ export function ConfiguratorSection() {
       // The spin only ever touches the rotation phase, so a small window
       // covers it entirely and the cache never churns.
       cacheSize: 14,
+      maxCacheBytes: 48 * 1024 * 1024,
       lookAhead: 5,
       lookBehind: 5,
       // Drag needs to feel direct; the walkthrough's damping would read as lag
