@@ -55,13 +55,20 @@ export function ProgressRail({ ref }: { ref: Ref<HTMLDivElement> }) {
               </span>
               <span
                 className={
-                  "rule-label mt-2 block transition-colors duration-300 " +
+                  "rule-label mt-2 block whitespace-nowrap transition-colors duration-300 " +
                   (phase === i
                     ? "text-ink"
                     : "text-ink-faint group-hover:text-ink-dim")
                 }
               >
-                {beat.eyebrow}
+                {/* On a narrow viewport only the ordinal fits. Letting the
+                    label wrap pushes the rail into two lines and over the copy
+                    above it, which is worse than showing less. */}
+                {beat.eyebrow.split(" // ")[0]}
+                <span className="hidden sm:inline">
+                  {" // "}
+                  {beat.eyebrow.split(" // ")[1]}
+                </span>
               </span>
             </button>
           </li>

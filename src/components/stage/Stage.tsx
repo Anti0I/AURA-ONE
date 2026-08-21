@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 import manifest from "@/data/sequence.json";
 import { FrameSequencePlayer } from "@/lib/canvas/FrameSequencePlayer";
 import { useSectionProgress } from "@/lib/scroll/useSectionProgress";
-import { readEnvironment } from "@/lib/motion";
+import { readEnvironment, type DeviceTier } from "@/lib/motion";
 import { clamp, easeOutExpo, mapRange } from "@/lib/utils";
 import { useAppStore } from "@/store/useAppStore";
 import { STORY, HERO_HOLD, beatOpacity, activeBeat } from "@/data/story";
@@ -17,11 +17,32 @@ import { SpecFlash } from "./SpecFlash";
 const SEQUENCE = manifest as SequenceManifest;
 
 /**
- * Where the product sits during the hero, before the walkthrough recentres it.
- * Fractions of the canvas: right of centre, slightly high, a touch smaller so
- * the headline reads as the larger element on the page.
+ * Camera framing, in fractions of the canvas.
+ *
+ * Two poses per tier, because the layouts are genuinely different rather than
+ * one being a narrower version of the other. On a desktop the copy sits beside
+ * the product and the framing moves sideways to make room; on a phone there is
+ * no beside, so the copy goes underneath and the product moves *up* instead.
+ *
+ * Without the story pose, mobile captions land directly on top of the exploded
+ * assembly and neither is readable.
  */
-const HERO_FRAMING = { x: 0.17, y: -0.05, scale: 0.88 };
+interface Framing {
+  readonly x: number;
+  readonly y: number;
+  readonly scale: number;
+}
+
+const FRAMING: Record<DeviceTier, { hero: Framing; story: Framing }> = {
+  desktop: {
+    hero: { x: 0.17, y: -0.05, scale: 0.88 },
+    story: { x: 0, y: 0, scale: 1 },
+  },
+  mobile: {
+    hero: { x: 0.04, y: -0.16, scale: 0.84 },
+    story: { x: 0, y: -0.18, scale: 0.78 },
+  },
+};
 
 /**
  * Hero and scrollytelling in one pinned stage.
@@ -49,6 +70,7 @@ export function Stage() {
   const booted = useAppStore((s) => s.booted);
   const setStoryPhase = useAppStore((s) => s.setStoryPhase);
   const lastPhase = useRef<0 | 1 | 2>(0);
+  const framing = useRef(FRAMING.desktop);
 
   // ---- Player lifecycle --------------------------------------------------
   useEffect(() => {
@@ -57,6 +79,7 @@ export function Stage() {
 
     const { tier } = readEnvironment();
     const variant = SEQUENCE.variants[tier];
+    framing.current = FRAMING[tier];
 
     const player = new FrameSequencePlayer(canvas, variant, {
       // Mobile ships half the frames, so a matched look-ahead in *seconds* of
@@ -98,15 +121,15 @@ export function Stage() {
       const player = playerRef.current;
       player?.setProgress(t);
 
-      // Camera framing. The hero sits the product off to the right so the
-      // headline has clean air beside it, then it settles to centre exactly as
-      // the walkthrough takes over and the words move out of the way.
+      // Camera framing eases from the hero pose to the walkthrough pose over
+      // exactly the span the headline takes to clear out.
       if (player) {
         const settle = easeOutExpo(clamp(p / HERO_HOLD, 0, 1));
+        const { hero, story } = framing.current;
         player.setFraming(
-          HERO_FRAMING.x * (1 - settle),
-          HERO_FRAMING.y * (1 - settle),
-          1 + (HERO_FRAMING.scale - 1) * (1 - settle),
+          hero.x + (story.x - hero.x) * settle,
+          hero.y + (story.y - hero.y) * settle,
+          hero.scale + (story.scale - hero.scale) * settle,
         );
       }
 
@@ -180,7 +203,10 @@ export function Stage() {
               beatRefs.current[i] = el;
             }}
             style={{ opacity: 0, visibility: "hidden" }}
-            className="pointer-events-none absolute left-gutter top-1/2 z-10 max-w-[34ch] -translate-y-1/2 will-change-[opacity,transform] md:max-w-[38ch]"
+            // Beside the product on a wide viewport, underneath it on a narrow
+            // one. There is no "beside" at 390px, and a caption laid over the
+            // exploded assembly makes both unreadable.
+            className="pointer-events-none absolute inset-x-gutter bottom-28 z-10 will-change-[opacity,transform] md:inset-x-auto md:bottom-auto md:left-gutter md:top-1/2 md:max-w-[38ch] md:-translate-y-1/2"
           >
             <p className="rule-label text-signal">{beat.eyebrow}</p>
             <h2 className="mt-4 text-title font-medium text-ink">
