@@ -32,7 +32,7 @@ That runs four steps, which can also be run individually:
 
 | Command | What it does | Time |
 | --- | --- | --- |
-| `npm run assets:noise` | 128² noise tile, 8 grey levels, ~4 KB | instant |
+| `npm run assets:noise` | 128² tileable noise, palette PNG, 4.1 KB | instant |
 | `npm run assets:prerender` | Three.js scene through headless Chromium → 240 PNGs + X-Ray pair + hotspot anchors | ~115 s |
 | `npm run assets:encode` | sharp → WebP/AVIF fallback variants + `public/seq/manifest.json` | ~25 s |
 | `npm run assets:video` | ffmpeg → the VP9 streams the walkthrough actually plays | ~90 s |

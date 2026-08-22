@@ -33,9 +33,14 @@ npm run assets:all       # regenerate every asset from primitives (~4 min; needs
 node scripts/shoot.mjs   # screenshot the stage at five scroll positions
 ```
 
-`npm run test:e2e` and `test:a11y` reuse a running dev server when there is one
-and otherwise build and start their own. Both need `public/seq/` to exist; it is
-committed, so a fresh clone works without a render.
+All three Playwright suites reuse a running server when there is one and
+otherwise build and start their own, and all three need `public/seq/` to exist —
+it is committed, so a fresh clone works without a render.
+
+`test:perf` has its own config (`playwright.perf.config.ts`) at one worker. It
+drives the page with `?debug=1`, which is the only thing that puts the live
+telemetry object on `window`; a normal visit pays one string comparison at boot
+and gets nothing else.
 
 ---
 
@@ -148,10 +153,22 @@ true at one scroll speed, so it has to be relearnt exactly when it is needed
 and has not converged. A time is a property of the machine, learnt during
 ordinary scrolling and already right when a flick starts.
 
-**`nearest()` is asymmetric on purpose.** Backwards it covers the measured lag;
-forwards it must not, because the player aims ahead deliberately and the frames
-arriving early are frames the scroll has not reached. A symmetric search showed
-frame 220 while the playhead was at 162.
+**`nearest()` is asymmetric about the direction of travel**, not about the
+index. Against the travel it covers the measured lag; with the travel it must
+not, because the player aims ahead deliberately and the frames arriving early
+are frames the scroll has not reached — a symmetric search showed frame 220
+while the playhead was at 162. Which side counts as "stale" flips when the
+scroll reverses, and hard-coding it towards lower indices was right going down
+the page and exactly backwards coming up.
+
+**Scrolling back up is the expensive direction.** A frame decodes only from the
+keyframe at or before it, so a reverse scrub asks for a descending ladder with
+every rung behind the decode head. Serving the nearest rung first leaves the
+next one behind the *new* head as well, and every frame costs its own reset:
+`pickTarget` goes to the bottom of the ladder instead, which turns the whole
+ladder into one rewind and one forward sweep. Frames then arrive in the opposite
+order to the one the playhead wants, which does not matter — they land in the
+cache either way. Removing this took the largest gap from 128–144 to 42–80.
 
 **postMessage is FIFO, so a window sent after the requests it authorises loses
 them.** The worker measures each request against the window it had a tick ago
@@ -202,9 +219,10 @@ the tests exist to catch.
 
 **A performance test must not share the machine.** `tests/perf` has its own
 config at one worker for that reason: run beside the rest of the suite it
-reported a largest-gap of 169 where it reports 21 to 48 alone. For the same
-reason it asserts on the fraction of the playhead's journey the picture covered
-— which does not simply get worse on a slower machine — and merely *logs*
+reported a largest gap of 169, where alone it reports 42 to 80 on the desktop
+stream and 21 to 28 on the mobile one. For the same reason it asserts on the
+fraction of the playhead's journey the picture covered — the one figure here
+that does not simply get worse on a slower machine — and merely *logs*
 granularity, which does.
 
 **Headless Chromium composites in software, and it is 300x slower.** WebGL in
@@ -242,7 +260,10 @@ palette is the combobox pattern: the input keeps focus,
 `aria-activedescendant` points at the active option.
 
 **`playwright.config.ts` needs `testMatch`.** `testDir: "tests"` otherwise picks
-up `tests/unit` and fails on the first vitest import.
+up `tests/unit` and fails on the first vitest import. It also has to leave
+`perf/**` out, or the performance suite runs two-wide with everything else and
+measures the neighbours; `playwright.perf.config.ts` spreads the base config and
+overrides only what runs and how much runs beside it.
 
 ---
 
@@ -258,8 +279,8 @@ scripts/
   prerender.mjs             headless Chromium → PNG frames + X-Ray pair + hotspots.json
   encode-sequence.mjs       sharp → WebP/AVIF fallback variants + manifests
   encode-video.mjs          ffmpeg → VP9 IVF streams, colour+matte packed
-  make-noise.mjs            128² noise tile, 8 grey levels
-  audit-budget.mjs          the budget gate
+  make-noise.mjs            128² tileable noise, palette PNG (4 greys, ceiling 8)
+  audit-budget.mjs          the budget gate; budgets live in src/data/budgets.mjs
   shoot.mjs                 screenshots at named scroll positions
 
 src/lib/
@@ -275,7 +296,13 @@ src/lib/
 src/components/             one directory per section, plus ui/, palette/, devhud/
   configurator/             ConfiguratorLive (WebGL) + ConfiguratorFallback (stills)
 src/data/                   specs, materials, story timing, author, generated manifests
+  budgets.mjs               every budget, read by the gate *and* by /engineering
 src/store/                  useAppStore (Zustand, discrete) + transient (per-frame)
+
+tests/
+  unit/                     vitest
+  e2e/  a11y/               playwright.config.ts, two workers
+  perf/                     playwright.perf.config.ts, one worker, on its own
 ```
 
 `src/data/sequence.json` and `src/data/hotspots.json` are **generated**. Edit the
@@ -398,8 +425,13 @@ enough that people learn to ignore it.
 
 ## Budgets
 
-Enforced by `scripts/audit-budget.mjs`, deliberately close to reality — a budget
-with slack in it is a budget nobody respects.
+Declared in `src/data/budgets.mjs`, enforced by `scripts/audit-budget.mjs` and
+quoted by the Budgets table on `/engineering`. One file because there are two
+consumers that must not disagree, and they did: the page advertised a 5.50 MB
+sequence ceiling against a gate set at 5.00.
+
+Deliberately close to reality — a budget with slack in it is a budget nobody
+respects.
 
 | Asset | Budget | Current |
 | --- | --- | --- |
@@ -416,7 +448,8 @@ with slack in it is a budget nobody respects.
 | Audio files | 0 | 0 — everything is synthesised |
 
 The JS figure excludes Next's `noModule` core-js bundle, which no targeted
-browser downloads.
+browser downloads. The "Current" column is what `npm run audit:budget` printed
+against the tree it was written for; the gate is the authority, not this table.
 
 ---
 
@@ -441,4 +474,10 @@ browser downloads.
   import map; converting it to TypeScript would put a bundler back in the render
   path.
 - The dev-only `window.__player` handle in `Stage.tsx` exists for
-  `scripts/shoot.mjs` and devtools poking. It is stripped in production.
+  `scripts/shoot.mjs` and devtools poking. It is stripped in production, which
+  is why `?debug=1` exists separately: it publishes the live `telemetry` object
+  as `window.__telemetry` in any build, and is what `tests/perf` measures
+  through.
+- `make-noise.mjs` asks the PNG palette for 8 greys and gets 4 — the quantiser
+  merges what it judges indistinguishable at 3% opacity. `LEVELS` is a ceiling,
+  not a result, and the script logs what it wrote rather than what it asked for.

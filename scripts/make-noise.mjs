@@ -4,10 +4,17 @@
  * Two decisions worth keeping:
  *  - Deterministic seed, so the tile is byte-identical on every machine and
  *    never shows up as a spurious diff.
- *  - Quantised to 8 grey levels and written as a palette PNG. Random noise is
- *    incompressible, so entropy per pixel *is* the file size: 8 levels is
- *    3 bits/px -> ~4 KB, while ungated 8-bit grain costs ~25 KB for a tile
- *    that renders at 3% opacity where nobody can tell the difference.
+ *  - Quantised and written as a palette PNG. Random noise is incompressible,
+ *    so entropy per pixel *is* the file size: a handful of levels costs ~4 KB
+ *    where ungated 8-bit grain costs ~25 KB, for a tile that renders at 3%
+ *    opacity where nobody can tell the difference.
+ *
+ *    `LEVELS` is a ceiling, not a result. The pre-quantisation puts eight
+ *    values in the buffer and the PNG palette quantiser then merges what it
+ *    considers indistinguishable — the tile as shipped holds four greys
+ *    (46, 128, 182, 231), not eight. The log line below reports what was
+ *    written rather than what was asked for, because the previous one said
+ *    "8 levels" about a four-level file.
  */
 import sharp from "sharp";
 import { mkdir } from "node:fs/promises";
@@ -34,8 +41,10 @@ const step = 255 / (LEVELS - 1);
 const pixels = Buffer.alloc(SIZE * SIZE * 2); // grey + alpha
 
 for (let i = 0; i < SIZE * SIZE; i++) {
-  // Centred on mid-grey so `mix-blend-mode: overlay` darkens and lightens
-  // symmetrically instead of just washing the page out.
+  // Centred on mid-grey so the grain darkens and lightens in equal measure
+  // rather than washing the page out. The original reason was
+  // `mix-blend-mode: overlay`, which needs a symmetric input; that is gone,
+  // and centring is now simply what keeps plain alpha compositing neutral.
   const raw = 128 + (rand() - 0.5) * 255;
   const v = Math.round(Math.round(raw / step) * step);
   pixels[i * 2] = Math.max(0, Math.min(255, v));
@@ -51,6 +60,14 @@ const info = await sharp(pixels, {
   .png({ compressionLevel: 9, palette: true, colours: LEVELS })
   .toFile(out);
 
+// Read back rather than reported from intent — see the note on `LEVELS`.
+const { data: written, info: meta } = await sharp(out)
+  .raw()
+  .toBuffer({ resolveWithObject: true });
+const greys = new Set();
+for (let i = 0; i < written.length; i += meta.channels) greys.add(written[i]);
+
 console.log(
-  `noise.png  ${SIZE}x${SIZE}  ${LEVELS} levels  ${(info.size / 1024).toFixed(2)} KB`,
+  `noise.png  ${SIZE}x${SIZE}  ${greys.size} greys (ceiling ${LEVELS})  ` +
+    `${(info.size / 1024).toFixed(2)} KB`,
 );
