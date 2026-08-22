@@ -115,6 +115,22 @@ chrome render with near-black gives bright chrome and an invisible hue shift.
 Lightness comes from `Material.exposure`, authored from the OKLab lightness of
 the tint. See `src/lib/canvas/tint.ts`.
 
+**Assigning to `canvas.width` resets the whole 2D context state.** Smoothing,
+alpha, transform, composite mode — all of it, every time, including when you
+assign the same value it already had. Anything configured once in a constructor
+survives exactly until the first resize, and the first resize happens during
+boot. `imageSmoothingQuality` is re-applied inside `resize()` for that reason,
+and it is not decoration: the master is 1440 square and a 1440p panel at dpr 2
+draws the artwork at 2477 device pixels, so an upsampling filter runs on every
+frame whether or not anyone chose one.
+
+**The decode size quantises with `ceil`, and both halves of that matter.** It
+keeps the decode at or above the drawn size so the 2D canvas only ever scales
+*down*, and it holds the whole hero-to-story framing sweep inside a single
+160px step — at dpr 1 on a 1080p panel the drawn square runs 817 to 929 px, and
+`ceil` calls both of those 960 where `round` would call them 800 and 960 and
+invalidate the entire cache halfway through the opening animation.
+
 **A frame count is not a memory budget.** The same 24 frames are 39 MB decoded
 at 640² and 199 MB at 1440². `BitmapLRU` takes both a count and a byte ceiling.
 
@@ -352,10 +368,19 @@ pictures and still follows the scroll end to end. That is the figure
 `tests/perf` asserts on, and it was 0.10 before this — the canvas covered
 twenty-four frames while the scroll crossed two hundred and thirty-nine.
 
-**Cross-fade.** The playhead keeps its fractional position and the draw weights
-the two frames it sits between. Never over a tint: that path ends in
-`destination-in`, which would take the first frame with it. Measured at 87
-distinct pictures across 88 wheel steps of 40px, against 48 for the stills.
+**Whole frames only.** The draw used to keep the playhead's fractional position
+and cross-fade the two frames it sat between. It was removed: the walkthrough
+turns 360 degrees across the 72 frames of its rotate phase — 5 degrees a frame,
+PSNR 20.7 dB between neighbours — so the blend read as a double exposure rather
+than as travel, with the mic holes, the indicator and the port ring visibly
+doubled. Worse at rest than in motion, because `damp()` settles on an arbitrary
+fraction and the ghost then stays put forever.
+
+It was also buying nothing. At 40px wheel steps the playhead crosses about 2.8
+frames, so nearly every step lands on a different frame regardless: 58 distinct
+pictures across 60 steps without it, 59 with. The 87-against-48 figure it was
+justified by compared the *video* against the *still* fallback, which has half
+the frames — it was never a measurement of the blend.
 
 **Format split.** VP9 for the walkthrough, WebP for its fallback, AVIF for the
 two X-Ray stills. AVIF is ~18% smaller per frame but decodes ~3× slower with

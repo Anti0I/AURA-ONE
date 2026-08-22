@@ -35,6 +35,34 @@ function fingerprint(page: Page) {
   });
 }
 
+/** Waits until the canvas stops changing. */
+async function settle(page: Page) {
+  let previous = "";
+  for (let poll = 0; poll < 20; poll++) {
+    await page.waitForTimeout(80);
+    const current = await fingerprint(page);
+    if (current !== "" && current === previous) return;
+    previous = current;
+  }
+}
+
+/**
+ * Which picture reached the canvas, and its pixels.
+ *
+ * `displayed`, not `frame`. `frame` is the one the playhead *asked* for, and
+ * when it is not resident the draw substitutes a neighbour — so two samples can
+ * legitimately share a `frame` and show different pictures, which is a
+ * substitution rather than a blend and not what this is looking for.
+ */
+async function shownPicture(page: Page) {
+  const shown = await page.evaluate(
+    () =>
+      (window as unknown as { __telemetry?: Record<string, number> })
+        .__telemetry?.displayed ?? -1,
+  );
+  return { shown, picture: await fingerprint(page) };
+}
+
 /**
  * Walks down the stage the way a person reading slowly does — small wheel
  * increments — and counts how many genuinely different pictures appear.
@@ -99,13 +127,60 @@ test("scrubbing produces a distinct picture almost every step", async ({
   // characterise the density, few enough steps that the test does not become
   // the slowest thing in the suite.
   const count = await distinctFrames(page, 60, 40);
+  console.log(`  distinct pictures: ${count} across 60 steps of 40px`);
 
-  // Measured at 1512x945: 87 distinct pictures across 88 steps of 40px — very
+  // Measured at 1512x945: 58 distinct pictures across 60 steps of 40px — very
   // nearly one per step, against 48 for the still fallback over the same walk.
+  // A 40px step crosses about 2.8 frames of a 240-frame stream, which is why
+  // this sits so close to the ceiling and why removing the neighbour blend
+  // moved it by one (59 to 58).
   // The floor sits well below that because decode throughput varies with the
   // machine; the regression this guards is the scrub going coarse, not a few
   // frames lost to a busy CI runner.
   expect(count, "the scrub has gone coarse").toBeGreaterThan(40);
+});
+
+test("a settled canvas holds one whole frame, not a blend of two", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+
+  // `?debug=1` for `window.__telemetry`, which is the only way to ask which
+  // frame the playhead is on in a production build.
+  await page.goto("/?debug=1");
+  await expect(page.getByRole("status")).toBeHidden({ timeout: 40_000 });
+  await page.waitForTimeout(800);
+
+  // Into the rotate phase, where consecutive frames are five degrees apart and
+  // a blend of two of them is unmistakable.
+  await page.mouse.wheel(0, 1400);
+  await settle(page);
+
+  // The property under test: within one frame, the picture is a *step
+  // function* of the playhead. Nudge the scroll by less than the ~14 px that
+  // separates two frames and, as long as the frame index has not changed, the
+  // canvas must be byte-identical. A cross-fade fails this by construction —
+  // it keeps the fractional position, so every nudge repaints a different
+  // mixture and a stopped playhead sits on a permanent double exposure.
+  let compared = 0;
+  for (let nudge = 0; nudge < 10; nudge++) {
+    const before = await shownPicture(page);
+    await page.mouse.wheel(0, 3);
+    await settle(page);
+    const after = await shownPicture(page);
+
+    if (before.shown !== after.shown || before.picture === "") continue;
+    compared++;
+    expect(
+      after.picture,
+      `frame ${after.shown} repainted differently after a sub-frame nudge — ` +
+        "the canvas is showing a mixture, not a frame",
+    ).toBe(before.picture);
+  }
+
+  // Otherwise a run where every nudge happened to cross a frame boundary would
+  // pass while asserting nothing at all.
+  expect(compared, "no sub-frame nudge to compare").toBeGreaterThan(0);
 });
 
 test("removing VideoDecoder falls back to the still sequence", async ({

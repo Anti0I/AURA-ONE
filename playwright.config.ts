@@ -1,5 +1,17 @@
 import { defineConfig, devices } from "@playwright/test";
 
+/**
+ * Where the suite points, and what it starts if nothing is there.
+ *
+ * Overridable because port 3000 is not always ours: a `next dev` left running
+ * from an earlier session is reused silently by `reuseExistingServer`, and then
+ * the suite measures a development build — unminified, with a different
+ * scheduler — while reporting on production. Setting `BASE_URL` points the run
+ * at a server you started yourself, on a port you chose.
+ */
+const PORT = process.env.PORT ?? "3000";
+const BASE_URL = process.env.BASE_URL ?? `http://localhost:${PORT}`;
+
 export default defineConfig({
   testDir: "tests",
   // tests/unit belongs to vitest. Without this, a bare `playwright test` picks
@@ -22,7 +34,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: BASE_URL,
     trace: "on-first-retry",
   },
   projects: [
@@ -34,7 +46,7 @@ export default defineConfig({
     // double the slowest part of the pipeline for no benefit. Locally, a
     // running `npm run dev` is reused and otherwise a build happens on demand.
     command: process.env.CI ? "npm run start" : "npm run build && npm run start",
-    url: "http://localhost:3000",
+    url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 300_000,
   },

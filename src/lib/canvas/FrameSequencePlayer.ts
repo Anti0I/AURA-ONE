@@ -198,10 +198,10 @@ export class FrameSequencePlayer {
   /**
    * Index of the picture currently on the canvas, or -1 for none.
    *
-   * Distinct from `lastDrawn`, which is a sub-frame position used to decide
-   * whether a redraw is needed. This is which *picture* the visitor is looking
-   * at, and the difference matters when `nearest()` substitutes: the sub-frame
-   * position moved, the picture did not.
+   * Distinct from `lastDrawn`, which is the frame the playhead *asked* for.
+   * This is the one that reached the canvas, and the two differ whenever
+   * `nearest()` substitutes — which is exactly when the scrub quality figures
+   * below are worth anything.
    */
   private displayed = -1;
 
@@ -452,10 +452,31 @@ export class FrameSequencePlayer {
       this.canvas.height = h;
     }
 
+    // Re-applied here, not set once in the constructor, because assigning to
+    // `canvas.width` resets the whole 2D context state — smoothing, alpha,
+    // transform, the lot. Set at construction it would survive exactly until
+    // the first resize, and the first resize happens during boot.
+    //
+    // It earns its keep on a high-DPI display. The master is 1440 square and
+    // the artwork is drawn at 1858 device pixels on a 1080p panel at dpr 2,
+    // and 2477 on a 1440p one — the source cannot cover that, so the only
+    // question is which upsampling filter runs. The default is "low", which is
+    // bilinear.
+    this.ctx.imageSmoothingEnabled = true;
+    this.ctx.imageSmoothingQuality = "high";
+
     this.layout();
 
     // Quantise the decode size to 160px steps. Without this, dragging a window
     // edge would invalidate the entire cache on every pixel of movement.
+    //
+    // `ceil` rather than `round`, and both halves of that matter. It keeps the
+    // decode at or above the drawn size, so the 2D canvas only ever scales
+    // *down* — the direction that loses nothing. And it holds the whole
+    // hero-to-story framing sweep inside one step: at dpr 1 on a 1080p panel
+    // the drawn square runs 817 to 929 px, and `ceil` calls both 960 where
+    // `round` would call them 800 and 960 and invalidate the cache halfway
+    // through the opening animation.
     const wantWidth = Math.min(
       this.variant.width,
       Math.max(320, Math.ceil(this.dest.w / 160) * 160),
@@ -545,9 +566,9 @@ export class FrameSequencePlayer {
         telemetry.decodeWaste++;
       }
       this.cache.set(message.index, message.bitmap, message.bytes);
-      // `lastDrawn` is a sub-frame position, so this asks whether the frame
-      // that just arrived is one of the two currently on screen.
-      if (Math.abs(message.index - this.lastDrawn) < 1.001) this.lastDrawn = -1;
+      // Redraw if what just landed is the frame being shown, or its neighbour —
+      // `nearest()` may have substituted, and the real one is better.
+      if (Math.abs(message.index - this.lastDrawn) <= 1) this.lastDrawn = -1;
     } else {
       // Two goes, then stop waiting on it. A frame that 404s must not hold the
       // boot open, and one that failed transiently deserves a second chance.
@@ -618,11 +639,6 @@ export class FrameSequencePlayer {
     }
     this.lastTarget = this.target;
 
-    // Sub-frame position, so the draw can cross-fade rather than snap. Rounded
-    // to 1/32 of a frame: fine enough that the blend reads as continuous,
-    // coarse enough that a settled page stops redrawing entirely.
-    const exact = clamp(this.current, 0, 1) * (this.frames - 1);
-    const blended = Math.round(exact * 32) / 32;
     const index = this.frameIndex(this.current);
     if (this.opts.reportTelemetry && this.lastIndex >= 0) {
       telemetry.playheadTravel += Math.abs(index - this.lastIndex);
@@ -631,7 +647,7 @@ export class FrameSequencePlayer {
     this.prefetch(index);
     if (this.opts.reportTelemetry) telemetry.lag = this.lead();
 
-    if (blended !== this.lastDrawn) this.draw(blended);
+    if (index !== this.lastDrawn) this.draw(index);
 
     if (this.opts.reportTelemetry) {
       telemetry.frame = index;
@@ -839,30 +855,35 @@ export class FrameSequencePlayer {
   }
 
   /**
-   * Draws the playhead position, cross-fading between the two frames it sits
-   * between.
+   * Draws one whole frame. Never a blend of two.
    *
-   * The frames are discrete and the scroll is not. At 240 frames over a 460svh
-   * section a new frame lands roughly every 12px of scroll, which is close
-   * enough to read as motion at speed and still visibly steps when somebody
-   * scrolls a line at a time — which is exactly when they are looking hardest.
-   * Weighting the two neighbours by the fractional position turns the step into
-   * a short dissolve, for one extra `drawImage` and no extra bytes.
+   * This used to keep the playhead's fractional position and cross-fade the
+   * two frames it sat between, on the stated grounds that "the movement
+   * between adjacent frames is small". Measured on the stream we actually
+   * ship, it is not: the walkthrough turns a full 360 degrees across the 72
+   * frames of its rotate phase, which is **5 degrees per frame**, and the PSNR
+   * between neighbours is 20.7 dB where the encoder targets 47 dB against the
+   * master. Blending two pictures that far apart does not read as travel, it
+   * reads as a double exposure — the mic holes, the indicator and the port
+   * ring all visibly doubled.
    *
-   * It is not motion blur and does not pretend to be. It works here because
-   * the movement between adjacent frames is small; at ten degrees of rotation
-   * apart it would read as a double image rather than as travel, which is part
-   * of why the frame count went up as well.
+   * Worse at rest than in motion, which is the opposite of what a motion
+   * effect should do. `damp()` converges on the scroll target, and the target
+   * is an arbitrary fraction, so a stopped playhead settles at something like
+   * 137.43 and the canvas holds frame 137 plus 43% of frame 138 *permanently*.
+   * The threshold was `mix > 0.02`, so 98% of resting positions kept a ghost.
+   *
+   * Drawing whole frames also means `lastDrawn` is an index rather than a
+   * position quantised to 1/32 of a frame: near a frame boundary the old
+   * scheme could repaint the canvas 32 times for one change of picture.
    */
-  private draw(position: number) {
+  private draw(index: number) {
     const start = performance.now();
 
-    const lower = Math.floor(position);
-    const mix = position - lower;
-    let shown = lower;
-    let bitmap = this.cache.get(lower);
+    let shown = index;
+    let bitmap = this.cache.get(index);
     if (!bitmap) {
-      shown = this.nearest(lower);
+      shown = this.nearest(index);
       if (shown < 0) return;
       bitmap = this.cache.peek(shown);
       if (!bitmap) return;
@@ -886,30 +907,12 @@ export class FrameSequencePlayer {
       ctx.drawImage(bitmap, this.dest.x, this.dest.y, this.dest.w, this.dest.h);
     }
 
-    // Only when the next frame is genuinely resident: blending towards
-    // `nearest()`'s substitute would cross-fade to the wrong picture, which is
-    // more distracting than the step it was meant to hide.
-    //
-    // And never over a tint. That path ends in a `destination-in` pass to clip
-    // the composite back to the silhouette, which would take the first frame
-    // with it — the two techniques both want to own the whole canvas. The tint
-    // is only used by the configurator, where the playhead follows a finger
-    // rather than a damped scroll and the steps are not what you notice.
-    if (mix > 0.02 && !this.tint) {
-      const next = this.cache.get(lower + 1);
-      if (next) {
-        ctx.globalAlpha = mix;
-        ctx.drawImage(next, this.dest.x, this.dest.y, this.dest.w, this.dest.h);
-        ctx.globalAlpha = 1;
-      }
-    }
-
     this.painted.x = this.dest.x;
     this.painted.y = this.dest.y;
     this.painted.w = this.dest.w;
     this.painted.h = this.dest.h;
 
-    this.lastDrawn = position;
+    this.lastDrawn = index;
 
     // Scrub quality, measured on what the visitor actually saw. A continuous
     // scrub steps one picture at a time; one that falls behind the scroll and

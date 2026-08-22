@@ -115,10 +115,11 @@ recombined in a WebGL2 shader inside the worker with no readback. What comes out
 is an ordinary `ImageBitmap`, so the cache and the draw path never learn any of
 this happened.
 
-**Cross-fade between neighbours.** A new frame every ~12px of scroll still steps
-visibly when you scroll a line at a time, so the draw weights the two frames the
-playhead sits between. One extra `drawImage`, no extra bytes: 87 distinct
-pictures across 88 wheel steps, against 48 for the stills.
+**Whole frames only.** The draw briefly cross-faded between the two frames the
+playhead sat between, to soften the step. Measured on the stream actually
+shipped, the two are 5 degrees of rotation apart and the blend read as a double
+exposure — and it bought no density: 58 distinct pictures across 60 wheel steps
+without it against 59 with, because a 40px step already crosses ~2.8 frames.
 
 **AVIF for the X-Ray stills, WebP for the fallback sequence.** AVIF is ~18%
 smaller per frame, but AVIF-with-alpha decodes about 3× slower, and a scrub

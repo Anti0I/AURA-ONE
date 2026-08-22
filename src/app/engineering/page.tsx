@@ -178,20 +178,51 @@ export default function EngineeringPage() {
           looking hardest.
         </P>
         <P>
-          So the playhead keeps its fractional position and the draw weights the
-          two frames it sits between. One extra{" "}
-          <Code>drawImage</Code>, no extra bytes, and the step becomes a short
-          dissolve. It is not motion blur and only works because the movement
-          between neighbours is small: at ten degrees of rotation apart it would
-          read as a double image rather than as travel, which is half the reason
-          the frame count went up as well.
+          So the playhead kept its fractional position and the draw weighted the
+          two frames it sat between. One extra <Code>drawImage</Code>, no extra
+          bytes, and the step became a short dissolve. The defence written
+          beside it was that this is not motion blur and only works because the
+          movement between neighbours is small.
         </P>
         <P>
-          Measured by walking the section in 40px wheel steps and counting
-          distinct pictures: 87 across 88 steps, against 48 for the still
-          sequence over the same walk. That is what{" "}
-          <Code>tests/e2e/sequence.spec.ts</Code> asserts, because
-          &ldquo;smoother&rdquo; is not something the DOM can be asked about.
+          That defence was never checked against the stream this page actually
+          ships, and it is false. The walkthrough turns a full circle across the
+          72 frames of its rotate phase, which is five degrees per frame, and
+          the PSNR between neighbours is 20.7 dB where the encoder targets 47 dB
+          against the master. Blending two pictures that far apart does not read
+          as travel. It reads as a double exposure, and on the shipped frames
+          the mic holes, the indicator and the port ring were all visibly
+          doubled.
+        </P>
+        <P>
+          It was worse standing still than moving, which is the opposite of what
+          a motion effect should do. The playhead is damped towards the scroll
+          position, and that position is an arbitrary fraction — so a stopped
+          playhead settles at something like 137.43 and the canvas holds frame
+          137 plus 43% of frame 138 <em>permanently</em>. The threshold was two
+          percent, so almost every resting position kept a ghost. The report
+          that started this was somebody scrolling slowly to look at one frame
+          at a time, which is exactly the worst case.
+        </P>
+        <P>
+          The part worth keeping is what the removal cost, because it is
+          nothing. Walking the section in 40px wheel steps and counting distinct
+          pictures gives 58 across 60 steps without the blend and 59 with it: a
+          40px step already crosses about 2.8 frames of a 240-frame stream, so
+          nearly every step lands on a different frame on its own. The
+          87-against-48 figure this feature was justified by had compared the
+          video source against the still fallback, which carries half the
+          frames. It was a measurement of the frame count, not of the blend.
+        </P>
+        <P>
+          Which leaves the step, and the honest answer is that the step is what
+          a frame sequence is. At 240 frames it is small, it only appears when
+          somebody is deliberately creeping down the page, and it is a
+          truthful picture of one moment. The blend was a smaller step and a
+          picture of no moment at all. The way to actually remove the step is
+          to spend more frames on the part that moves fastest, which costs a
+          re-render rather than a <Code>drawImage</Code> — a real decision,
+          taken on its own terms, and not one to be smuggled in as a filter.
         </P>
       </Section>
 
