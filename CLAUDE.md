@@ -216,13 +216,28 @@ compositor to read the backdrop, and the grain sits directly over the stage
 canvas. Move an oversized child by `transform` instead, and compensate the
 overhang in `background-position` or the tile lands on different pixels.
 
-**`filter` creates a containing block, so `sticky` inside one stops working.**
-It also opens a new stacking context. `SectionHandoff` puts a blur on a
-full-viewport wrapper, so nothing pinned may ever sit inside it — the stage is
-`position: sticky` and is deliberately not wrapped. The failure is not an error:
-the pinned child simply pins to the filtered ancestor instead of the viewport,
-and only while the filter is non-empty, so it works perfectly except during the
-transition.
+**What breaks `position: sticky` is `overflow`, and only `overflow`.**
+Measured in the target browser rather than assumed, because this entry
+previously claimed `filter` was the culprit and that is simply false:
+
+    plain (control)            STICKS
+    filter: blur()             STICKS
+    will-change: transform     STICKS
+    transform: translateZ(0)   STICKS
+    contain: paint             STICKS
+    overflow: hidden           BROKEN
+    overflow-x: hidden         BROKEN
+    overflow: clip             STICKS
+
+`transform`, `filter` and `will-change` create a containing block for *fixed*
+descendants — sticky is not fixed, and it positions against the nearest
+scrollport. `overflow: hidden` makes an ancestor into that scrollport, which is
+why it is the one that bites; `overflow-x: hidden` bites for the same reason,
+because it computes `overflow-y` to `auto`. `overflow: clip` does not create a
+scroll container and is the safe way to clip around something pinned.
+
+Both pinned sections put `overflow-hidden` on the sticky element *itself*, which
+is fine — it is ancestors that matter.
 
 **A blur radius has to be quantised.** `opacity` and `transform` are compositor
 properties and cost nothing per frame; `filter: blur()` re-rasterises the layer
