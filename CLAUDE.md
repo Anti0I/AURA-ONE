@@ -26,7 +26,7 @@ npm run dev              # Next 16 dev server, Turbopack
 npm run verify           # typecheck + lint + 25 unit tests — run before every commit
 npm run build            # production build
 npm run audit:budget     # asset + JS budget gate; needs a build first
-npm run test:e2e         # 36 Playwright tests, desktop + mobile projects (~5 min)
+npm run test:e2e         # 42 Playwright tests, desktop + mobile projects (~7 min)
 npm run test:a11y        # 12 axe / keyboard / reduced-motion tests
 npm run test:perf        # scrub continuity, own config, one worker (~30 s)
 npm run assets:all       # regenerate every asset from primitives (~4 min; needs ffmpeg)
@@ -216,6 +216,43 @@ compositor to read the backdrop, and the grain sits directly over the stage
 canvas. Move an oversized child by `transform` instead, and compensate the
 overhang in `background-position` or the tile lands on different pixels.
 
+**`filter` creates a containing block, so `sticky` inside one stops working.**
+It also opens a new stacking context. `SectionHandoff` puts a blur on a
+full-viewport wrapper, so nothing pinned may ever sit inside it — the stage is
+`position: sticky` and is deliberately not wrapped. The failure is not an error:
+the pinned child simply pins to the filtered ancestor instead of the viewport,
+and only while the filter is non-empty, so it works perfectly except during the
+transition.
+
+**A blur radius has to be quantised.** `opacity` and `transform` are compositor
+properties and cost nothing per frame; `filter: blur()` re-rasterises the layer
+at layer size on every distinct radius. `SectionHandoff` steps the radius so a
+whole transition costs four or five rasterisations rather than one per frame,
+which is the same answer `.noise-field` reached with `steps(8)`. And at the ends
+the filter is *removed*, not set to `blur(0px)` — a zero radius still promotes
+the element and still runs the pass.
+
+**An entrance and an exit across one boundary must be complements.** For
+adjacent sections the incoming top edge and the outgoing bottom edge are the
+same edge, so thresholds measured from the viewport top make `enter + exit`
+sum to exactly 1 and the boundary cross-dissolves. Measuring each from the
+nearest viewport edge instead looks equivalent and is not: measured across the
+boundary, the incoming section was fully arrived before the outgoing one had
+begun to leave.
+
+**Interface sounds must never construct the AudioContext.** `tick()` and
+`sweepDown()` used to call `ensureAudio()`, so scrolling past the scanner built
+an audio graph — the lens firing `lock()` at a hotspot is a scroll-driven event,
+not a request for sound. Nothing was audible, because the master gain is zero
+until somebody switches sound on, and that is exactly why it survived: a graph
+and a device handle created for silence. They take the context only if one
+already exists; `ensureAudio()` belongs to the deliberate switch-on path.
+
+**`getByRole("button", { name: /Sound/ })` is a substring, not a name.** It
+matched the audio toggle until the acoustics section added "Play — Sound keeps
+its address.", and then failed as a strict-mode violation in two suites at once.
+Anchor role-name regexes.
+
 **`will-change` is a promise, not a hint you can leave on.** It holds a
 compositor layer for as long as it is set. The hero copy and the four captions
 are full-viewport elements; clear it in the same write that sets
@@ -305,12 +342,15 @@ src/lib/
                             ivf.ts (container reader), matte.ts (WebGL2 recombine)
   scroll/                   rafBus (the one loop), scrollEngine (Lenis), useSectionProgress
                             onScreen (the visibility gate every loop goes through)
-  audio/                    AudioBus, synth (everything is synthesised)
+  audio/                    AudioBus, synth (interface), acoustics (the demos)
   perf/                     fpsMeter
   motion.ts                 cached environment probes; utils.ts: cn, damp, clamp, easings
 
 src/components/             one directory per section, plus ui/, palette/, devhud/
   configurator/             ConfiguratorLive (WebGL) + ConfiguratorFallback (stills)
+  acoustics/                synthesised sound demos + analyser meter
+  ui/Reveal                 word-by-word text entrance, on the frame bus
+  ui/SectionHandoff         scroll-driven cross-dissolve between sections
 src/data/                   specs, materials, story timing, author, generated manifests
   budgets.mjs               every budget, read by the gate *and* by /engineering
 src/store/                  useAppStore (Zustand, discrete) + transient (per-frame)
@@ -393,6 +433,23 @@ window into the lower one. The lens is a fixed-size element that is
 opposite amount. Animating `mask-image` or `clip-path` position recomputes the
 mask on the compositor's critical path every frame.
 
+**Section hand-off.** Sections do not abut, they dissolve into one another:
+`SectionHandoff` drives opacity and scale continuously and a stepped blur
+alongside them, from each section's own edges. Blur is dropped on mobile and
+under reduced motion, where opacity and scale carry it alone.
+
+**Text entrance** is `Reveal`, on the shared frame bus. There is no GSAP here
+and there is not going to be: it is ~40 KB gzip against 15 KB of first-load
+headroom, and it brings its own ticker into a page whose ordering guarantees
+depend on there being exactly one.
+
+**Acoustics.** The only claim on the site made in sound, and it ships no audio
+bytes — a sweep, brown noise with the suppression engaging mid-clip, and a
+panned orbit, all built from oscillators and filters. The meter reads an
+`AnalyserNode` tapped off the demos' own output stage rather than the master
+bus, so it cannot twitch at the ambient bed. It draws its resting state once
+and only subscribes to the frame loop while something is playing.
+
 **Audio** is entirely synthesised, ambient bed included. One `AudioContext`,
 created on the first gesture. A hover tick can be pitched per element, which a
 sample cannot do without shipping one per variant.
@@ -437,6 +494,11 @@ pixels: coverage, frame fingerprints, mean luminance for the finish tests.
   Asserts on the fraction of the playhead's journey the picture covered and on
   where it lands when the scroll stops; logs granularity without asserting on
   it, because that one is a measure of the machine.
+- `tests/e2e/acoustics.spec.ts` — that a demo actually builds a running graph,
+  read off the meter rather than through a test-only probe, and that no
+  `AudioContext` exists until one is asked for (counted by patching the
+  constructor in an init script, because "the browser blocked us" and "we never
+  tried" look identical from outside).
 - `tests/a11y/` — axe on the chrome, on every lazy section once mounted, on the
   palette while open, on `/engineering`; plus the skip link, keyboard
   reachability and the reduced-motion path.
