@@ -3,6 +3,28 @@
 import { ensureAudio, audioBus, audioContext, registerAmbient } from "./AudioBus";
 
 /**
+ * The context, but only if one already exists.
+ *
+ * Interface sounds must never be the thing that brings the audio system up.
+ * They used to call `ensureAudio()`, which constructs the context — so merely
+ * scrolling past the scanner built one, because the lens firing `lock()` at a
+ * hotspot is a scroll-driven event and not a request for sound. Nothing was
+ * audible, since the master gain sits at zero until somebody switches sound
+ * on, and that is exactly why it went unnoticed: an entire audio graph and a
+ * device handle, created for silence, on a page that says in as many words
+ * that it stays off until asked.
+ *
+ * So these voices are best-effort. If sound is off there is no context, they
+ * return, and nothing is lost — they would have been inaudible anyway.
+ */
+function playbackContext(): AudioContext | null {
+  const ctx = audioContext();
+  if (!ctx) return null;
+  if (ctx.state === "suspended") void ctx.resume();
+  return ctx;
+}
+
+/**
  * Every sound on the page, generated from oscillators and noise.
  *
  * Shipping the interface sounds as files would be four more HTTP requests and
@@ -38,7 +60,7 @@ function getNoise(ctx: AudioContext): AudioBuffer {
  * rather than a beep — a pure tone always sounds like an error message.
  */
 export function tick(pitch = 1180, level = 0.16) {
-  const ctx = ensureAudio();
+  const ctx = playbackContext();
   const bus = audioBus();
   if (!ctx || !bus) return;
 
@@ -84,7 +106,7 @@ export function lock() {
 
 /** A short downward sweep, for closing or dismissing. */
 export function sweepDown() {
-  const ctx = ensureAudio();
+  const ctx = playbackContext();
   const bus = audioBus();
   if (!ctx || !bus) return;
 

@@ -79,7 +79,9 @@ test("the component list is reachable without the scanner", async ({ page }) => 
 
 test("sound stays off until it is asked for", async ({ page }) => {
   await openScanner(page);
-  const toggle = page.getByRole("button", { name: /Sound/ });
+  // Anchored, because /Sound/ is not a name — it is a substring, and it also
+  // matches the acoustics section's "Play — Sound keeps its address.".
+  const toggle = page.getByRole("button", { name: /^Sound (on|off)$/ });
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
 
   await toggle.click();

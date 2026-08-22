@@ -51,7 +51,12 @@ test("the lazy sections pass once mounted", async ({ page }) => {
     );
     await page.waitForTimeout(250);
   }
-  await page.waitForSelector("#configurator", { timeout: 30_000 });
+  // Waited on by *content*, not by id. Every `LazySection` carries its anchor
+  // id on the placeholder as well as on the mounted section — deliberately, so
+  // a deep link works before the section exists — which means waiting for
+  // "#acoustics" resolves instantly and audits an empty div.
+  await page.waitForSelector("#configurator canvas", { timeout: 30_000 });
+  await page.waitForSelector("#acoustics-heading", { timeout: 30_000 });
   await page.waitForTimeout(1200);
 
   const results = await analyse(page);
@@ -100,22 +105,36 @@ test("reduced motion is honoured", async ({ browser }) => {
   );
   expect(smooth).toBe(false);
 
-  await expect(page.getByRole("button", { name: /Sound/ })).toHaveAttribute(
-    "aria-pressed",
-    "false",
-  );
+  // Anchored: /Sound/ is a substring, not a name, and the acoustics section
+  // has a "Play — Sound keeps its address." control of its own.
+  await expect(
+    page.getByRole("button", { name: /^Sound (on|off)$/ }),
+  ).toHaveAttribute("aria-pressed", "false");
 
   // The walkthrough still works — it is measured from layout, not from Lenis.
-  const canvasDrawn = await page.evaluate(() => {
-    const canvas = document.querySelector("canvas");
-    if (!canvas?.width) return false;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return false;
-    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    for (let i = 3; i < data.length; i += 4 * 997) if (data[i]! > 8) return true;
-    return false;
-  });
-  expect(canvasDrawn).toBe(true);
+  //
+  // Polled, not sampled once. The preloader releasing the page and the first
+  // frame reaching the canvas are two different moments, and under a parallel
+  // run they can be several hundred milliseconds apart; asking once right
+  // after the overlay hides is a coin toss that lands the right way up on an
+  // idle machine.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const canvas = document.querySelector("canvas");
+          if (!canvas?.width) return false;
+          const ctx = canvas.getContext("2d", { willReadFrequently: true });
+          if (!ctx) return false;
+          const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          for (let i = 3; i < data.length; i += 4 * 997) {
+            if (data[i]! > 8) return true;
+          }
+          return false;
+        }),
+      { timeout: 20_000, message: "the walkthrough never drew a frame" },
+    )
+    .toBe(true);
 
   await context.close();
 });

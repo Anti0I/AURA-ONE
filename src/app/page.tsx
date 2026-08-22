@@ -7,6 +7,7 @@ import { DevInspector } from "@/components/devhud/DevInspector";
 import { Stage } from "@/components/stage/Stage";
 import { XraySectionLazy } from "@/components/xray/XraySectionLazy";
 import { ConfiguratorSectionLazy } from "@/components/configurator/ConfiguratorSectionLazy";
+import { AcousticsSectionLazy } from "@/components/acoustics/AcousticsSectionLazy";
 
 export default function Home() {
   return (
@@ -20,6 +21,7 @@ export default function Home() {
         <Stage />
         <XraySectionLazy />
         <ConfiguratorSectionLazy />
+        <AcousticsSectionLazy />
       </main>
       <SiteFooter />
     </>
