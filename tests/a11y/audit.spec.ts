@@ -45,7 +45,9 @@ test("the lazy sections pass once mounted", async ({ page }) => {
 
   // Every section below the fold is code-split, so an audit of the initial
   // document would check almost nothing. Walk down and mount them all first.
-  for (let i = 0; i < 10; i++) {
+  // Far enough for a document that is now over a thousand viewport heights
+  // tall, most of it the two pinned sections.
+  for (let i = 0; i < 16; i++) {
     await page.evaluate(() =>
       window.scrollBy({ top: window.innerHeight * 2, behavior: "instant" }),
     );
@@ -61,6 +63,18 @@ test("the lazy sections pass once mounted", async ({ page }) => {
 
   const results = await analyse(page);
   expect(describe(results)).toBe("");
+
+  // The acoustics section pins and shows one beat at a time, so on a wide
+  // viewport only one of its three Play buttons is in the tab order. Its rail
+  // is the way through, exactly as the walkthrough's is — without it the second
+  // and third demonstrations are reachable by scrolling and by nothing else.
+  const rail = page.getByRole("list", { name: "Acoustics demonstrations" });
+  if (await rail.count()) {
+    await expect(rail.getByRole("button")).toHaveCount(3);
+  } else {
+    // Flat layout: no rail, and none needed, because all three are present.
+    await expect(page.getByRole("button", { name: /^Play — / })).toHaveCount(3);
+  }
 });
 
 test("the command palette passes while open", async ({ page }) => {

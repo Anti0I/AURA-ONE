@@ -11,7 +11,7 @@ import { STORY, HERO_HOLD, beatOpacity, activeBeat } from "@/data/story";
 import { PRODUCT, SPECS } from "@/data/specs";
 import type { SequenceManifest } from "@/types/sequence";
 import { HeroOverlay } from "./HeroOverlay";
-import { ProgressRail } from "./ProgressRail";
+import { StoryRail } from "./StoryRail";
 import { SpecFlash } from "./SpecFlash";
 
 const SEQUENCE = manifest as SequenceManifest;
@@ -234,7 +234,7 @@ export function Stage() {
         ))}
 
         <SpecFlash ref={specRef} specs={SPECS} />
-        <ProgressRail ref={railRef} />
+        <StoryRail ref={railRef} />
       </div>
     </section>
   );
