@@ -121,6 +121,12 @@ shipped, the two are 5 degrees of rotation apart and the blend read as a double
 exposure — and it bought no density: 58 distinct pictures across 60 wheel steps
 without it against 59 with, because a 40px step already crosses ~2.8 frames.
 
+**Two pinned sections, no scroll plugin.** The walkthrough and the acoustics
+demos are both a tall section with one `position: sticky` child, driven by a
+single `getBoundingClientRect` per frame. The acoustics one pages through three
+beats on a masked wipe and releases at the end; on a phone, and under reduced
+motion, it is a flat list instead.
+
 **Sections dissolve into each other.** `SectionHandoff` drives opacity, scale
 and a stepped blur from each section's own edges, so a boundary cross-fades
 instead of one panel sliding out from under another. The blur radius is

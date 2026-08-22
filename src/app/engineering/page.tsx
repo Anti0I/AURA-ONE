@@ -226,6 +226,45 @@ export default function EngineeringPage() {
         </P>
       </Section>
 
+      <Section title="The same pin, used twice">
+        <P>
+          The walkthrough is a 460svh section with one{" "}
+          <Code>position: sticky</Code> child, and its progress is a single{" "}
+          <Code>getBoundingClientRect</Code> per frame, read during the phase of
+          the frame loop where layout reads are still free. That is the whole
+          mechanism. There is no ScrollTrigger, no pin-spacer element and no
+          plugin — about 30 KB of JavaScript and a class of refresh bugs
+          avoided, for roughly forty lines.
+        </P>
+        <P>
+          The acoustics section is the argument for having done it that way. It
+          needed exactly the same behaviour — lock the frame, page three panels
+          through it, let go at the end — and it cost a second call to the same
+          hook. The panels wipe through masking windows, which is transform
+          inside <Code>overflow: hidden</Code> and therefore free on the
+          compositor.
+        </P>
+        <P>
+          Two things about that wipe were not obvious. A percentage translation
+          is relative to the element being moved, not to whatever is clipping
+          it, so a one-line title in a two-line window translated by 115% of one
+          line is still sitting in the window in full view, having &ldquo;left&rdquo;.
+          And beats centred independently put their titles at different heights,
+          so the outgoing and incoming ones crossed at an offset and read as two
+          paragraphs colliding rather than one slot changing its contents. Both
+          are fixed by making the mover and its window agree on a height.
+        </P>
+        <P>
+          It is not pinned on a phone, and not for anyone who has asked for
+          reduced motion. A section that demands three screens of scroll gesture
+          to deliver three paragraphs is tiring on a small screen and hostile to
+          somebody who turned motion down on purpose, so that case gets a flat
+          list with every demonstration present at once — which is also the only
+          version where all three controls are in the tab order together. On the
+          pinned one, that job belongs to the rail.
+        </P>
+      </Section>
+
       <Section title="The scrub that could not keep up">
         <P>
           The report was specific: scroll the first section fast and the

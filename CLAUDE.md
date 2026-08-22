@@ -26,7 +26,7 @@ npm run dev              # Next 16 dev server, Turbopack
 npm run verify           # typecheck + lint + 25 unit tests — run before every commit
 npm run build            # production build
 npm run audit:budget     # asset + JS budget gate; needs a build first
-npm run test:e2e         # 42 Playwright tests, desktop + mobile projects (~7 min)
+npm run test:e2e         # 46 Playwright tests, desktop + mobile projects (~8 min)
 npm run test:a11y        # 12 axe / keyboard / reduced-motion tests
 npm run test:perf        # scrub continuity, own config, one worker (~30 s)
 npm run assets:all       # regenerate every asset from primitives (~4 min; needs ffmpeg)
@@ -239,6 +239,23 @@ scroll container and is the safe way to clip around something pinned.
 Both pinned sections put `overflow-hidden` on the sticky element *itself*, which
 is fine — it is ancestors that matter.
 
+**A percentage translation is relative to the element, not to what clips it.**
+The masked wipe in the acoustics section moves each block by 115% — of its own
+height, which for a one-line title inside a two-line window leaves it sitting in
+the window, in full view, having "left". Every mover is stretched to fill its
+window (`h-full`) and every window has a fixed height, so the two agree.
+
+**Paged beats have to align slot for slot.** Centred independently, beats of
+unequal height put their titles at different heights, and the outgoing and
+incoming ones cross at an offset — which reads as two paragraphs colliding
+rather than one slot changing its contents. Align from a fixed top and give the
+variable-height blocks a fixed height.
+
+**Never put a focusable control inside an `overflow: hidden` window.** The clip
+takes the focus ring with it, and the focus ring is the only feedback a keyboard
+user has about where they are. In the acoustics beats the Play button sits
+outside the masks and moves on transform and opacity instead.
+
 **A blur radius has to be quantised.** `opacity` and `transform` are compositor
 properties and cost nothing per frame; `filter: blur()` re-rasterises the layer
 at layer size on every distinct radius. `SectionHandoff` steps the radius so a
@@ -363,7 +380,9 @@ src/lib/
 
 src/components/             one directory per section, plus ui/, palette/, devhud/
   configurator/             ConfiguratorLive (WebGL) + ConfiguratorFallback (stills)
-  acoustics/                synthesised sound demos + analyser meter
+  acoustics/                AcousticsPinned (scrollytelling) + AcousticsFlat
+                            + useAcousticsDemo (playback and meter, shared)
+  ui/ProgressRail           phase rail, shared by both pinned sections
   ui/Reveal                 word-by-word text entrance, on the frame bus
   ui/SectionHandoff         scroll-driven cross-dissolve between sections
 src/data/                   specs, materials, story timing, author, generated manifests
@@ -464,6 +483,19 @@ panned orbit, all built from oscillators and filters. The meter reads an
 `AnalyserNode` tapped off the demos' own output stage rather than the master
 bus, so it cannot twitch at the ambient bed. It draws its resting state once
 and only subscribes to the frame loop while something is playing.
+
+**The second pinned section.** On a wide viewport the acoustics section is
+380svh with a sticky frame, paging through its three beats on a masked wipe —
+the same sticky-plus-one-rect mechanism as the walkthrough, which is the whole
+argument for not having taken a scroll plugin. On a narrow viewport, and under
+reduced motion, it is an ordinary stacked list instead: `AcousticsPinned` and
+`AcousticsFlat` are separate components because they are genuinely different
+documents — one keeps a single beat in the tab order, the other holds all three
+— and `useAcousticsDemo` owns everything that is not layout.
+
+The rail matters more here than in the walkthrough. The walkthrough's beats are
+captions; these contain their own controls, so with one beat on screen the rail
+is the only way to reach the second and third demonstrations without scrolling.
 
 **Audio** is entirely synthesised, ambient bed included. One `AudioContext`,
 created on the first gesture. A hover tick can be pitched per element, which a
