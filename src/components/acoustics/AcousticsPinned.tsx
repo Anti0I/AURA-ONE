@@ -5,7 +5,7 @@ import { ACOUSTICS, PRODUCT } from "@/data/specs";
 import { useSectionProgress } from "@/lib/scroll/useSectionProgress";
 import { Priority } from "@/lib/scroll/rafBus";
 import { onFrameWhileVisible } from "@/lib/scroll/onScreen";
-import { cn, easeInOutQuart } from "@/lib/utils";
+import { cn, smoothstep } from "@/lib/utils";
 import { ProgressRail } from "@/components/ui/ProgressRail";
 import { Reveal } from "@/components/ui/Reveal";
 import { useAcousticsDemo } from "./useAcousticsDemo";
@@ -35,10 +35,20 @@ import { activeStation, railTargets, stationPhase } from "./stations";
  * **A parked card never changes scale.** The compositor will rotate and
  * translate a rasterised layer for nothing, but a *scale* change forces it to
  * re-raster so the text stays sharp. Three text cards changing scale on every
- * frame for the whole visit is the one way this section could get expensive, so
- * every channel that varies at rest — the three rotations — is one the
- * compositor handles, and scale moves only inside the short approach and
- * retreat, where a little softness reads as speed anyway.
+ * frame for the whole visit is a cost with no end, so every channel that varies
+ * at rest — the three rotations — is one the compositor handles, and scale
+ * moves only inside an approach or a retreat.
+ *
+ * **A card's fill is opaque exactly when the card is large.** This is the one
+ * that actually showed up in a measurement, and not the one expected: a
+ * translucent card has to be blended against what is behind it every frame, and
+ * what is behind it is a canvas repainting sixty times a second, so the cost
+ * follows the card's *area* — which grows precisely as it comes forward.
+ * Translucent throughout, an approach cost 19.90 ms a frame and 24 long frames
+ * against 16.69 ms and one for scrolling the same section through the gap.
+ * Opaque throughout: 16.62 ms and none, indistinguishable from the control.
+ * Stepping the scale to cut rasterisations, which is where the suspicion
+ * started, changed nothing at all — 19.90 either way.
  *
  * **Opacity and `preserve-3d` cannot live on the same element.** Opacity is a
  * grouping property, and a grouping property computes `transform-style` back to
@@ -71,11 +81,55 @@ const ROLL = 4;
 /** How visible a parked card is. Scenery, not something anyone is reading. */
 const PARKED_OPACITY = 0.46;
 
+/** How solid a parked card's fill is. See the note on the backdrop element. */
+const PARKED_FILL = 0.72;
+
+/**
+ * How quickly a card goes fully opaque once it starts coming forward.
+ *
+ * The dimming belongs to the parking spot, not to the journey. Any element with
+ * an opacity below 1 is a group the compositor has to blend against what is
+ * behind it — here, a canvas repainting every frame — and the bill goes with
+ * the element's area, which is exactly what an approach increases. Ramping the
+ * fade across the whole approach put the most expensive blend at the biggest
+ * size. Ramping it out in the first tenth means the card lights up as it leaves
+ * its spot and then travels opaque and free.
+ */
+const LIFT = 8;
+
+/** Fades `from` up to a solid 1 over the first fraction of the approach. */
+const lift = (e: number, from: number) => Math.min(1, from + (1 - from) * e * LIFT);
+
 /** Perspective of the scene, in pixels. */
 const PERSPECTIVE = 1400;
 
 /** Wraps an angle into (-180, 180], so settling flat is at most a half turn. */
 const wrap180 = (deg: number) => (((deg % 360) + 540) % 360) - 180;
+
+/**
+ * How far out of focus the signal chain goes between two beats, in pixels, and
+ * the step the radius is rounded to.
+ *
+ * The chain used to teleport: the rail changes over mid-flight and three lines
+ * of monospace replaced themselves between two frames, which was the one hard
+ * cut left in a section that is otherwise completely continuous. It read as a
+ * fault in something else.
+ *
+ * It now defocuses on the way out of a station and resolves on the way into the
+ * next, driven by the same `presence` every other thing here is driven by —
+ * rather than by a timer started when the text changed. That is not just
+ * tidier: it is reversible for free, it cannot race the scroll, and the swap
+ * itself lands at the middle of the flight where the text is at zero opacity
+ * and nobody can see it happen.
+ *
+ * The radius is stepped, because it is not a one-off transition — it is
+ * scroll-driven, and `filter: blur()` re-rasterises the layer at every distinct
+ * radius. Five steps across a whole flight rather than one per frame, and the
+ * filter is removed rather than set to `blur(0px)` at the ends: a zero radius
+ * still promotes the element and still runs the pass.
+ */
+const CHAIN_BLUR = 6;
+const CHAIN_STEP = 1.5;
 
 interface BeatRefs {
   /** Carries the composed transform and the 3D context. Never opacity. */
@@ -86,6 +140,8 @@ interface BeatRefs {
   fades: (HTMLElement | null)[];
   /** The schematic grid, which is the inverse: only there while parked. */
   grid: HTMLElement | null;
+  /** The card's fill. Opaque on the front, translucent when parked. */
+  backdrop: HTMLElement | null;
   /** Free-running spin, and the flat angle it settles to. See `tumble`. */
   spin: number;
   flat: number;
@@ -96,12 +152,14 @@ export function AcousticsPinned() {
   const stageRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLCanvasElement>(null);
   const railRef = useRef<HTMLDivElement>(null);
+  const chainRef = useRef<HTMLOListElement>(null);
   const beats = useRef<BeatRefs[]>(
     ACOUSTICS.map(() => ({
       mover: null,
       faces: [],
       fades: [],
       grid: null,
+      backdrop: null,
       spin: 0,
       flat: 0,
     })),
@@ -184,13 +242,16 @@ export function AcousticsPinned() {
     const detach = onFrameWhileVisible(
       stage,
       ({ time, delta }) => {
+        let focus = 0;
+
         for (let i = 0; i < beats.current.length; i++) {
           const beat = beats.current[i]!;
           const park = PARK[i]!;
           if (!beat.mover) continue;
 
-          const e = easeInOutQuart(fronts.current[i] ?? 0);
+          const e = smoothstep(fronts.current[i] ?? 0);
           const back = 1 - e;
+          if (e > focus) focus = e;
 
           // The spin free-runs only while the beat is parked, and the angle it
           // will settle to is latched at the same moment. Both matter: if the
@@ -222,7 +283,7 @@ export function AcousticsPinned() {
           // promise is only worth making while the scale is actually moving.
           beat.mover.style.willChange = e > 0 && e < 1 ? "transform" : "";
 
-          const opacity = PARKED_OPACITY + (1 - PARKED_OPACITY) * e;
+          const opacity = lift(e, PARKED_OPACITY);
           for (const face of beat.faces) {
             if (face) face.style.opacity = opacity.toFixed(3);
           }
@@ -240,6 +301,27 @@ export function AcousticsPinned() {
           // as a schematic and is gone by the time anything has to be read
           // over it.
           if (beat.grid) beat.grid.style.opacity = back.toFixed(3);
+          // See the note on the backdrop element: translucent while the card is
+          // small and cheap to blend, fully opaque by the time it fills the
+          // frame.
+          if (beat.backdrop) {
+            beat.backdrop.style.opacity = lift(e, PARKED_FILL).toFixed(3);
+          }
+        }
+
+        // The chain pulls out of focus on the way off one station and back in
+        // on the way onto the next, so the moment its contents are replaced —
+        // the middle of the flight, where `focus` is 0 — is a moment nobody can
+        // see. Stepped radius: this is scroll-driven, and every distinct radius
+        // is another rasterisation of the layer.
+        const chain = chainRef.current;
+        if (chain) {
+          chain.style.opacity = focus.toFixed(3);
+          const radius =
+            Math.round(((1 - focus) * CHAIN_BLUR) / CHAIN_STEP) * CHAIN_STEP;
+          // Removed, not `blur(0px)`: a zero radius still promotes the element
+          // and still runs the pass.
+          chain.style.filter = radius > 0 ? `blur(${radius}px)` : "";
         }
       },
       Priority.RENDER,
@@ -268,7 +350,7 @@ export function AcousticsPinned() {
       ref={sectionRef}
       id="acoustics"
       aria-labelledby="acoustics-heading"
-      className="relative h-[380svh] border-t border-line"
+      className="relative h-[520svh] border-t border-line"
     >
       <div className="sticky top-0 h-dvh overflow-hidden bg-void">
         {/* The galaxy behind the stars. A static CSS gradient rather than
@@ -366,8 +448,36 @@ export function AcousticsPinned() {
                     // No `overflow: hidden` to clip the grid to the corners
                     // either — the Play button lives in here, and a clip takes
                     // the focus ring with it. The grid carries its own radius.
-                    className="relative rounded-tile border border-line-strong bg-void/92 p-7 [backface-visibility:hidden] sm:p-9"
+                    className="relative rounded-tile border border-line-strong p-7 [backface-visibility:hidden] sm:p-9"
                   >
+                    {/* The card's fill, as its own layer rather than a
+                        background on the card.
+
+                        It is opaque on the front and translucent when parked,
+                        and that is a performance decision before it is a visual
+                        one. A translucent card has to be blended against
+                        whatever is behind it on every frame, and what is behind
+                        it is a canvas repainting sixty times a second — so the
+                        cost goes with the card's *area*, and the card grows to
+                        fill the frame exactly when it comes forward. Measured
+                        translucent throughout: 19.90 ms a frame during an
+                        approach against 16.69 ms scrolling the same section
+                        through the gap. Opaque throughout: 16.62 ms, no
+                        difference at all.
+
+                        Opacity is a compositor property, so moving between the
+                        two costs nothing — where animating `background-color`
+                        would repaint the element every step. And it happens to
+                        be the better picture too: the field showing through is
+                        depth when the card is small and clutter under a
+                        paragraph you are trying to read. */}
+                    <div
+                      ref={(el) => {
+                        beats.current[i]!.backdrop = el;
+                      }}
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 rounded-tile bg-void"
+                    />
                     <div
                       ref={(el) => {
                         beats.current[i]!.grid = el;
@@ -504,11 +614,12 @@ export function AcousticsPinned() {
 
             <div>
               <p className="rule-label">Signal chain</p>
-              {/* Follows the beat the rail is marking, so it has something to
-                  say mid-flight as well. Inline rather than stacked: it is a
-                  chain, it reads as one, and the frame has no vertical space to
-                  spare for three more lines. */}
+              {/* Inline rather than stacked: it is a chain, it reads as one,
+                  and the frame has no vertical space to spare for three more
+                  lines. The label above stays put — it is the panel's identity,
+                  like "Output", and only the contents come and go. */}
               <ol
+                ref={chainRef}
                 className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1"
                 role="list"
               >
