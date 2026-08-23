@@ -1,17 +1,28 @@
 import { test, expect, type Page } from "@playwright/test";
+import { ACOUSTICS } from "../../src/data/specs";
+import { settledAt } from "../../src/components/acoustics/stations";
 
 /**
  * The acoustics section, the only part of this site whose claim is made in
  * sound, and the second pinned section on the page.
  *
- * Three things are worth pinning down and none is visible in the DOM. That
+ * Four things are worth pinning down and none is visible in the DOM. That
  * pressing play actually builds and runs an audio graph — the section's whole
  * argument is that the demonstrations are synthesised rather than loaded, and a
  * silent button would make the page a liar. That nothing starts on its own,
  * which is a promise to the visitor and not merely a browser policy being
- * enforced on us. And that the pin lets go: a section holding 380svh of scroll
- * that never releases it has taken the page hostage, which is the one failure
- * here that would be worse than the feature is good.
+ * enforced on us. That the starfield behind the beats is genuinely running.
+ * And that the pin lets go: a section holding 380svh of scroll that never
+ * releases it has taken the page hostage, which is the one failure here that
+ * would be worse than the feature is good.
+ *
+ * The overlap bug this section was rebuilt around — two beats readable at once —
+ * is *not* tested here. It is a property of the window arithmetic that holds or
+ * fails at every scroll position, and forty browser positions at three seconds
+ * each still only samples forty of them. `tests/unit/stations.test.ts` checks a
+ * thousand exhaustively in a millisecond. What is worth checking in a real
+ * browser is the consequence: that mid-flight the frame is deliberately empty
+ * of beats and has not simply broken.
  *
  * Headless Chromium has no audio hardware and renders to a null sink, so "did
  * it make a noise" cannot be asked directly. It can be asked one node earlier:
@@ -21,14 +32,10 @@ import { test, expect, type Page } from "@playwright/test";
  * visitor actually sees, and puts nothing extra in the production bundle.
  */
 
-const BEATS = [
-  "One moving surface.",
-  "The room, subtracted.",
-  "Sound keeps its address.",
-] as const;
+const BEATS = ACOUSTICS.map((row) => row.title);
 
-/** The middle of beat `i`'s own window, as a fraction of the section's span. */
-const settledAt = (i: number) => 0.14 + i * 0.28;
+/** Middle of the flight between beat 0 and beat 1. Nothing should be on screen. */
+const MID_FLIGHT = 0.355;
 
 /**
  * Tallest bar in the meter, as a fraction of the canvas height.
@@ -36,13 +43,24 @@ const settledAt = (i: number) => 0.14 + i * 0.28;
  * Discriminated by *height*, not width. The reference grid behind the bars is
  * drawn in the same dim colour and spans the full width, so a filter on run
  * length reads the topmost grid line as a permanent 75% signal — which is
- * exactly what the first version of this did. A bar is at least three pixels
- * tall; a grid line is one.
+ * exactly what the first version of this did.
+ *
+ * Two consecutive rows, not three. Three was never a property of the meter,
+ * only of how tall it happened to be: the resting bar floor is
+ * `max(2 * dpr, height * 0.03)`, which at dpr 1 is two device pixels for any
+ * meter shorter than 67 CSS pixels. The old 160px panel cleared three by
+ * accident and the strip in the pinned frame does not. A grid line is drawn
+ * with `fillRect(…, 1)` on an integer row, so it is exactly one pixel and two
+ * still tells them apart.
+ *
+ * `[data-meter]` is not decoration either: the section now has two canvases and
+ * the starfield is the first one in document order.
  */
 function meterPeak(page: Page) {
   return page.evaluate(() => {
-    const canvas =
-      document.querySelector<HTMLCanvasElement>("#acoustics canvas");
+    const canvas = document.querySelector<HTMLCanvasElement>(
+      "#acoustics canvas[data-meter]",
+    );
     if (!canvas?.width) return 0;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return 0;
@@ -50,14 +68,37 @@ function meterPeak(page: Page) {
     const { data } = ctx.getImageData(0, 0, width, height);
     const ink = (x: number, y: number) => data[(y * width + x) * 4 + 3]! > 8;
 
-    for (let y = 0; y < height - 2; y++) {
+    for (let y = 0; y < height - 1; y++) {
       for (let x = 0; x < width; x++) {
-        if (ink(x, y) && ink(x, y + 1) && ink(x, y + 2)) {
+        if (ink(x, y) && ink(x, y + 1)) {
           return (height - y) / height;
         }
       }
     }
     return 0;
+  });
+}
+
+/** Cheap fingerprint of the starfield canvas, for "is it moving" questions. */
+function fieldPrint(page: Page) {
+  return page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>(
+      "#acoustics canvas:not([data-meter])",
+    );
+    if (!canvas?.width) return "absent";
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return "absent";
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    // Sampled on a prime stride: a fixed power-of-two stride lands on the same
+    // channel of the same pixel column every time and can miss a whole moving
+    // field between two samples.
+    let hash = 0;
+    let ink = 0;
+    for (let i = 3; i < data.length; i += 997) {
+      hash = (hash * 31 + data[i]!) | 0;
+      if (data[i]! > 8) ink++;
+    }
+    return `${hash}:${ink > 0}`;
   });
 }
 
@@ -70,9 +111,8 @@ async function reachAcoustics(page: Page) {
   // Driven by the wheel and polled, not by `scrollBy` for a fixed count.
   // Lenis owns the scroll position and pulls a programmatic jump back towards
   // its own target, so a loop of jumps covers an unpredictable distance — and
-  // this page is now over a thousand viewport heights tall, most of it two
-  // pinned sections, with the target mounting lazily somewhere near the end.
-  // Under a parallel run that combination timed out.
+  // this page is over a thousand viewport heights tall, most of it two pinned
+  // sections, with the target mounting lazily somewhere near the end.
   for (let i = 0; i < 120; i++) {
     if (await page.locator("#acoustics-heading").count()) break;
     await page.mouse.wheel(0, 1400);
@@ -176,7 +216,14 @@ test("each demonstration builds a running audio graph", async ({ page }) => {
     // In the pinned layout only the beat on screen carries a button, so each
     // demo has to be scrolled to before it can be played. In the flat layout
     // all three are present at once and this simply lands on the right one.
-    if (box.pinned) await scrollWithin(page, box.top, box.span, settledAt(i));
+    if (box.pinned) {
+      await scrollWithin(
+        page,
+        box.top,
+        box.span,
+        settledAt(i, BEATS.length),
+      );
+    }
 
     await page.getByRole("button", { name: `Play — ${name}` }).click();
     await expect(page.getByText(`Playing: ${name}`)).toBeVisible();
@@ -184,7 +231,7 @@ test("each demonstration builds a running audio graph", async ({ page }) => {
     // The meter has to be on screen to be drawn at all — it runs through
     // `onFrameWhileVisible`, and in the flat layout it sits below the three
     // cards. In the pinned frame it is always in view and this is a no-op.
-    await page.locator("#acoustics canvas").scrollIntoViewIfNeeded();
+    await page.locator("#acoustics canvas[data-meter]").scrollIntoViewIfNeeded();
 
     // Polled rather than slept on: the envelopes ramp in over a few hundred
     // milliseconds and the analyser smooths on top of that, so the first sample
@@ -214,23 +261,86 @@ test("the pinned section pages through one beat at a time", async ({
   const box = await reachAcoustics(page);
   test.skip(!box.pinned, "flat layout — every beat is on screen at once");
 
-  // The middle of each beat's own window, where exactly one has settled. The
-  // boundaries between them are deliberately not sampled: two beats crossing is
-  // the transition working, not a fault.
   for (let i = 0; i < BEATS.length; i++) {
-    await scrollWithin(page, box.top, box.span, settledAt(i));
+    await scrollWithin(page, box.top, box.span, settledAt(i, BEATS.length));
     expect(await visibleBeats(page), `at beat ${i + 1}`).toEqual([BEATS[i]]);
   }
 
-  // Walking back up has to work too. A wipe driven from scroll position rather
-  // than from events is reversible for free — which is the argument for driving
-  // it that way, so it is worth checking that it actually is.
+  // Walking back up has to work too. A transition driven from scroll position
+  // rather than from events is reversible for free — which is the argument for
+  // driving it that way, so it is worth checking that it actually is.
   for (let i = BEATS.length - 2; i >= 0; i--) {
-    await scrollWithin(page, box.top, box.span, settledAt(i));
+    await scrollWithin(page, box.top, box.span, settledAt(i, BEATS.length));
     expect(await visibleBeats(page), `back at beat ${i + 1}`).toEqual([
       BEATS[i],
     ]);
   }
+});
+
+test("the frame is empty between two beats, and still furnished", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await page.goto("/");
+  const box = await reachAcoustics(page);
+  test.skip(!box.pinned, "flat layout — nothing travels");
+
+  await scrollWithin(page, box.top, box.span, MID_FLIGHT);
+
+  // The point of the rebuild. Not "one beat is fading into another" — none.
+  expect(
+    await visibleBeats(page),
+    "a beat was still on screen mid-flight",
+  ).toEqual([]);
+
+  // And the difference between "travelling" and "broken": the section keeps
+  // its header, its meter and its rail the whole way across.
+  await expect(page.locator("#acoustics-heading")).toBeVisible();
+  await expect(page.getByText("Nothing playing.")).toBeVisible();
+  await expect(
+    page.getByRole("list", { name: "Acoustics demonstrations" }),
+  ).toBeVisible();
+});
+
+test("the starfield is running, and stops for reduced motion", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await page.goto("/");
+  const box = await reachAcoustics(page);
+  // The flat layout gets the field as a still image by design, so "is it
+  // moving" is the wrong question there. It has its own test below.
+  test.skip(!box.pinned, "flat layout — the field is deliberately still");
+  await scrollWithin(page, box.top, box.span, MID_FLIGHT);
+
+  const first = await fieldPrint(page);
+  expect(first, "there is no starfield canvas").not.toBe("absent");
+  expect(first.endsWith("true"), "the starfield drew nothing at all").toBe(true);
+
+  // Sampled with the page parked. The field cruises whether or not anyone is
+  // scrolling — a background that only exists during a gesture reads as a
+  // glitch — so this needs no wheel input to be a fair question.
+  await page.waitForTimeout(300);
+  expect(await fieldPrint(page), "the starfield is frozen").not.toBe(first);
+});
+
+test("reduced motion gets a still starfield", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const context = await browser.newContext({ reducedMotion: "reduce" });
+  const page = await context.newPage();
+  await page.goto("/");
+  await reachAcoustics(page);
+  await page.locator("#acoustics canvas:not([data-meter])").scrollIntoViewIfNeeded();
+
+  const first = await fieldPrint(page);
+  expect(first).not.toBe("absent");
+  await page.waitForTimeout(400);
+  expect(
+    await fieldPrint(page),
+    "the starfield animated for somebody who asked it not to",
+  ).toBe(first);
+
+  await context.close();
 });
 
 test("the section lets go of the scroll at the end", async ({ page }) => {
