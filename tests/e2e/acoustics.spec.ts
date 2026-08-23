@@ -152,13 +152,54 @@ async function scrollWithin(page: Page, top: number, span: number, at: number) {
   await page.waitForTimeout(450);
 }
 
-/** Titles of the beats currently rendered, in document order. */
-function visibleBeats(page: Page) {
+/**
+ * Titles of the beats being presented, in document order.
+ *
+ * Read off `data-front`, not off `visibility`. Every beat is now in the scene
+ * the whole time — parked at its own depth, turning — so "visible" is true of
+ * all three at every scroll position and answers a question nobody is asking.
+ * What matters is which one has been brought to the front.
+ */
+function frontBeats(page: Page) {
   return page.evaluate(() =>
-    [...document.querySelectorAll("#acoustics article")]
-      .filter((el) => getComputedStyle(el).visibility === "visible")
-      .map((el) => el.querySelector("h3")?.textContent?.trim() ?? ""),
+    [...document.querySelectorAll('#acoustics article[data-front="1"]')].map(
+      (el) => el.querySelector("h3")?.textContent?.trim() ?? "",
+    ),
   );
+}
+
+/**
+ * How many beats have readable body copy, and how bright the brightest is.
+ *
+ * The guard on the whole design. Keeping three cards on screen at once is one
+ * step away from reinstating the bug this section was rebuilt to remove — two
+ * paragraphs competing for the same attention — and the only thing standing
+ * between the two is that a parked card fades everything except its number and
+ * its title. So that is measured rather than assumed, from the composed opacity
+ * a browser actually arrived at.
+ */
+function readableBodies(page: Page) {
+  return page.evaluate(() => {
+    const levels = [...document.querySelectorAll("#acoustics article")].map(
+      (article) => {
+        const body = article.querySelector("p.text-lead");
+        if (!body) return 0;
+        // Composed, not the element's own: the body sits inside a face that is
+        // itself faded, and it is the product that reaches the eye.
+        let opacity = 1;
+        let node: Element | null = body;
+        while (node && node !== document.body) {
+          opacity *= Number(getComputedStyle(node).opacity);
+          node = node.parentElement;
+        }
+        return opacity;
+      },
+    );
+    return {
+      readable: levels.filter((o) => o > 0.1).length,
+      peak: Math.max(...levels),
+    };
+  });
 }
 
 test("nothing plays, and no audio graph exists, until it is asked for", async ({
@@ -263,7 +304,7 @@ test("the pinned section pages through one beat at a time", async ({
 
   for (let i = 0; i < BEATS.length; i++) {
     await scrollWithin(page, box.top, box.span, settledAt(i, BEATS.length));
-    expect(await visibleBeats(page), `at beat ${i + 1}`).toEqual([BEATS[i]]);
+    expect(await frontBeats(page), `at beat ${i + 1}`).toEqual([BEATS[i]]);
   }
 
   // Walking back up has to work too. A transition driven from scroll position
@@ -271,13 +312,11 @@ test("the pinned section pages through one beat at a time", async ({
   // driving it that way, so it is worth checking that it actually is.
   for (let i = BEATS.length - 2; i >= 0; i--) {
     await scrollWithin(page, box.top, box.span, settledAt(i, BEATS.length));
-    expect(await visibleBeats(page), `back at beat ${i + 1}`).toEqual([
-      BEATS[i],
-    ]);
+    expect(await frontBeats(page), `back at beat ${i + 1}`).toEqual([BEATS[i]]);
   }
 });
 
-test("the frame is empty between two beats, and still furnished", async ({
+test("no beat is on the front mid-flight, and the frame is still furnished", async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -287,10 +326,11 @@ test("the frame is empty between two beats, and still furnished", async ({
 
   await scrollWithin(page, box.top, box.span, MID_FLIGHT);
 
-  // The point of the rebuild. Not "one beat is fading into another" — none.
+  // Not "the stage is empty" — the three cards are parked in it, turning, and
+  // that is the design. Nothing is being *presented*.
   expect(
-    await visibleBeats(page),
-    "a beat was still on screen mid-flight",
+    await frontBeats(page),
+    "a beat was still on the front mid-flight",
   ).toEqual([]);
 
   // And the difference between "travelling" and "broken": the section keeps
@@ -300,6 +340,35 @@ test("the frame is empty between two beats, and still furnished", async ({
   await expect(
     page.getByRole("list", { name: "Acoustics demonstrations" }),
   ).toBeVisible();
+});
+
+test("only one beat is ever readable, however slowly you scroll", async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  await page.goto("/");
+  const box = await reachAcoustics(page);
+  test.skip(!box.pinned, "flat layout — every beat is on screen by design");
+
+  // The invariant that survived the rebuild into a 3D scene. Sampled across
+  // the whole section rather than at the settled points, because the failure
+  // this guards against lives between them: it is what "the text goes weird"
+  // meant, and it was two paragraphs at once.
+  //
+  // Coarser than the unit test on purpose. `stations.ts` proves the window
+  // arithmetic exhaustively in a millisecond; what a browser adds is whether
+  // the *fades* actually follow it, and that needs far fewer samples.
+  for (let step = 0; step <= 14; step++) {
+    const at = step / 14;
+    await scrollWithin(page, box.top, box.span, at);
+    const { readable, peak } = await readableBodies(page);
+    expect(
+      readable,
+      `${readable} beats were readable at p=${at.toFixed(2)}`,
+    ).toBeLessThanOrEqual(1);
+    // And a parked card is genuinely faded, not merely losing on z-order.
+    if (readable === 0) expect(peak).toBeLessThan(0.1);
+  }
 });
 
 test("the starfield is running, and stops for reduced motion", async ({
