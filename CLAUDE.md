@@ -23,10 +23,10 @@ file is the working knowledge that is expensive to re-derive.
 
 ```bash
 npm run dev              # Next 16 dev server, Turbopack
-npm run verify           # typecheck + lint + 31 unit tests — run before every commit
+npm run verify           # typecheck + lint + 32 unit tests — run before every commit
 npm run build            # production build
 npm run audit:budget     # asset + JS budget gate; needs a build first
-npm run test:e2e         # 52 Playwright tests, desktop + mobile projects (~7 min)
+npm run test:e2e         # 54 Playwright tests, desktop + mobile projects (~7 min)
 npm run test:a11y        # 12 axe / keyboard / reduced-motion tests
 npm run test:perf        # scrub continuity, own config, one worker (~30 s)
 npm run assets:all       # regenerate every asset from primitives (~4 min; needs ffmpeg)
@@ -239,17 +239,38 @@ scroll container and is the safe way to clip around something pinned.
 Both pinned sections put `overflow-hidden` on the sticky element *itself*, which
 is fine — it is ancestors that matter.
 
+**A translucent layer over a canvas costs by area, every frame.** The most
+expensive thing in the acoustics stage turned out to be one nobody suspected.
+An element with an opacity below 1 is a group the compositor has to blend
+against whatever is behind it, and behind these cards is a canvas repainting
+sixty times a second — so the bill follows the card's *area*, which is exactly
+what an approach increases. Interleaved against a control that scrolls the same
+section through the gap where no card is moving:
+
+    translucent throughout   19.90 ms/frame, 24 long   (control 16.69, 1)
+    opaque throughout        16.62 ms/frame,  0 long   (control 16.60, 0)
+
+So the dimming belongs to the parking spot, not to the journey: the fade lifts
+to fully opaque over the first eighth of an approach, and the card travels the
+rest of the way free. It is the better picture as well — the field showing
+through is depth when a card is small and clutter under a paragraph.
+
+**Beware which measurement you take.** The two entries above were nearly
+recorded the wrong way round. Frame times sampled with the scroll *parked* said
+this section cost nothing, and could not have said anything else: blending and
+re-rasterisation only happen while something is changing. The number that
+mattered came from sampling while scrolling at a fixed rate, against another
+scroll at the same rate through a part of the section where nothing scales —
+and A/B interleaved in one session, because the machine drifts by more than the
+effect between runs.
+
 **A scale change re-rasterises a layer; a rotation or a translation does not.**
-This is the whole reason the acoustics stage can keep three text cards turning
-in the background for the length of the section and cost nothing. The
-compositor moves and turns an already-rasterised layer for free, but it has to
-raster *again* at every distinct scale or the text goes soft — so a card parked
-in the scene varies only its three rotations, and its scale, depth and position
-are frozen until the scroll actually brings it forward. Measured with the
-parked cards turning: 16.62 ms a frame against 16.76 ms at the footer with
-everything unsubscribed, no long frames either way. Written the obvious way,
-with a scale that breathes at rest, this would have been three re-rasters a
-frame for the whole visit.
+True, and it is why a parked card varies only its three rotations while its
+scale, depth and position stay frozen — three text cards breathing at rest
+would be a cost with no end. But it was *not* what made the approach expensive:
+stepping the scale to cut rasterisations, tried first on exactly this
+suspicion, moved the figure from 19.90 ms to 19.90 ms. The step was removed
+again rather than kept as machinery that earns nothing.
 
 **`opacity` and `transform-style: preserve-3d` cannot share an element.**
 Opacity is a grouping property, and a grouping property computes
@@ -522,7 +543,7 @@ bus, so it cannot twitch at the ambient bed. It draws its resting state once
 and only subscribes to the frame loop while something is playing.
 
 **The second pinned section.** On a wide viewport the acoustics section is
-380svh with a sticky frame — the same sticky-plus-one-rect mechanism as the
+520svh with a sticky frame — the same sticky-plus-one-rect mechanism as the
 walkthrough, which is the whole argument for not having taken a scroll plugin.
 On a narrow viewport, and under reduced motion, it is an ordinary stacked list
 instead: `AcousticsPinned` and `AcousticsFlat` are separate components because
@@ -546,12 +567,40 @@ flat to is latched at the same moment. Both halves matter: if the spin kept
 accumulating on the way in, the nearest whole turn would flip somewhere
 mid-approach and the card would snap through a half rotation.
 
+**The approach is paced, and the curve matters as much as the length.** Coming
+towards you gets roughly twice the scroll that going away does — `FADE_IN` 0.45
+of a station against `FADE_OUT` 0.22, which at 520svh is about 54svh in and
+26svh out. The first version gave each a fifth of a station, some 15svh, which
+is a wheel notch and a half from parked to fully arrived; it was reported as
+happening instantly, and it was. But lengthening the window alone would not have
+fixed it: the stage ran on `easeInOutQuart`, which parks near 0 and near 1 and
+crosses the middle at four times the average rate, so a scroll-driven approach
+built on it reads as *nothing, snap, nothing* however much scroll it is given.
+It now uses `smoothstep`, which is very nearly linear through the middle, so a
+notch of wheel buys a proportional step closer.
+
+Worth knowing before retuning: one approach is about six notches of a 100px
+wheel, and buying six more costs 600px of document per beat. Thirty notches an
+approach — which is what "make it gradual" sounds like in the abstract — would
+put the section past a thousand svh on its own.
+
 One number carries the whole thing. `presence` — 0 at the parking spot, 1 on the
 front — drives the position, the depth, the scale, how far the tumble is allowed
-to swing, how bright the card is, whether its body copy exists, and how fast the
-starfield behind is running. There is no second timeline to keep in step,
-because there is only one, and that is why the fastest part of the flight is
-exactly the part with nothing to read.
+to swing, how bright the card is, whether its body copy exists, how fast the
+starfield behind is running, and how far the signal chain in the readout is out
+of focus. There is no second timeline to keep in step, because there is only
+one, and that is why the fastest part of the flight is exactly the part with
+nothing to read.
+
+That last one replaced the only hard cut left in the section. The chain follows
+the rail, the rail changes over mid-flight, and three lines of monospace used to
+replace themselves between two frames — which reads as a fault in something
+else. It now defocuses on the way out of a station and resolves on the way into
+the next, so the swap lands where `presence` is 0 and nobody can see it happen.
+Driven from the scroll rather than from a timer started when the text changed:
+reversible for free, and it cannot race the gesture. The radius is stepped,
+because unlike a one-off transition this one is scroll-driven and every distinct
+radius is another rasterisation.
 
 The read/write split is not optional here. `onProgress` runs during INPUT and
 writes only refs; a single RENDER task composes parking, approach and tumble
@@ -652,8 +701,8 @@ respects.
 
 | Asset | Budget | Current |
 | --- | --- | --- |
-| First-load JS (gzip) | 180 KB | 165.7 KB |
-| All JS chunks (gzip) | 420 KB | 368.8 KB |
+| First-load JS (gzip) | 180 KB | 165.8 KB |
+| All JS chunks (gzip) | 420 KB | 368.9 KB |
 | Desktop video | 3.70 MB | 3.34 MB / 240 frames |
 | Mobile video | 1.50 MB | 1.36 MB / 240 frames |
 | Desktop still fallback | 5.00 MB | 4.54 MB / 120 frames |

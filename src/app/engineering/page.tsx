@@ -280,16 +280,46 @@ export default function EngineeringPage() {
           to load.
         </P>
         <P>
-          One property of the compositor decides whether that is affordable. It
-          will move and turn a layer it has already rasterised for nothing, but
-          a change of <em>scale</em> forces it to raster again so the text stays
-          sharp — and three text cards breathing at rest would mean three of
-          those on every frame for as long as the section is on screen. So a
-          parked card varies only its rotations; its scale, depth and position
-          are frozen until the scroll actually calls it forward. Measured with
-          all three turning: 16.62 ms a frame, against 16.76 ms parked at the
-          footer with the whole section unsubscribed, and no long frames on
-          either side.
+          Coming towards you gets about twice the scroll that going away does,
+          and the curve matters more than the distance did. The first version
+          gave the approach a fifth of a station — a wheel notch and a half from
+          parked to arrived — on <Code>easeInOutQuart</Code>, which sits near 0
+          and near 1 and crosses the middle at four times the average rate. On
+          that curve a scroll-driven approach reads as <em>nothing, snap,
+          nothing</em> however much scroll it is handed. It now runs on a
+          smoothstep, which is very nearly linear through the middle, so a notch
+          of wheel buys a proportional step closer.
+        </P>
+        <P>
+          The expensive part was not the part I suspected, and the measurement
+          that said otherwise could not have found it. Frame times sampled with
+          the scroll <em>parked</em> reported this section as free — and had to,
+          because blending and rasterisation only happen while something is
+          changing. Sampling while scrolling at a fixed rate, against a control
+          scrolling at the same rate through a stretch where no card is moving,
+          says something different.
+        </P>
+        <P>
+          The suspicion was rasterisation: a compositor moves and turns a layer
+          it has already rasterised for nothing, but a change of <em>scale</em>
+          forces it to raster again to keep the text sharp. That is true, and it
+          is why a parked card varies only its rotations. It was also not the
+          problem — stepping the scale to cut those rasterisations moved the
+          figure from 19.90 ms a frame to 19.90 ms a frame, so the step came
+          back out again.
+        </P>
+        <P>
+          What cost was blending. Any layer below full opacity has to be
+          composited against whatever is behind it on every frame, and behind
+          these cards is a canvas repainting sixty times a second — so the bill
+          follows the card&rsquo;s <em>area</em>, which is precisely what coming
+          forward increases. Translucent throughout, an approach ran at 19.90 ms
+          with 24 long frames against a control at 16.69 ms with one. Opaque
+          throughout: 16.62 ms and none. So the dimming now belongs to the
+          parking spot rather than to the journey — a card lights up as it
+          leaves its spot and travels solid. It is the better picture as well.
+          The field showing through a card is depth when the card is small and
+          clutter under a paragraph you are trying to read.
         </P>
         <P>
           The field costs nothing measurable beside it. 900 stars stroke as

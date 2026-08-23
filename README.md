@@ -45,13 +45,13 @@ That runs four steps, which can also be run individually:
 npm run verify
 ```
 
-Typecheck, lint and 31 unit tests. The full pipeline, as CI runs it:
+Typecheck, lint and 32 unit tests. The full pipeline, as CI runs it:
 
 ```bash
 npm run build && npm run audit:budget && npm run test:e2e && npm run test:a11y && npm run test:perf
 ```
 
-- **36 end-to-end tests** across desktop and mobile. The scrollytelling cannot
+- **54 end-to-end tests** across desktop and mobile. The scrollytelling cannot
   be checked by asserting on the DOM — everything that matters happens inside a
   canvas React never re-renders — so those tests read pixels: coverage, frame
   fingerprints, and mean luminance for the finish tests.
@@ -135,12 +135,22 @@ none — measured on composed opacity at fifteen scroll positions, not assumed.
 
 **A stage instead of a slot.** All three cards live in a 3D scene, parked in
 their own corners at their own depths and turning, and the scroll calls them
-forward one at a time to dead centre where the perspective distortion is zero.
-What makes it free is a compositor detail: a rasterised layer can be turned and
-moved for nothing, but a *scale* change forces a re-raster to keep text sharp —
-so a parked card varies only its rotations. Three cards turning cost 16.62 ms a
-frame against 16.76 ms with the section unsubscribed. The 900-star field behind
-strokes as eight paths and does not register either.
+forward one at a time to dead centre where the perspective distortion is zero
+and the type is as sharp as if none of it were happening. Coming towards you
+gets about twice the scroll that going away does, on a curve that is nearly
+linear through the middle — a quartic ease over the same distance reads as
+*nothing, snap, nothing* no matter how much scroll it is given.
+
+**The expensive thing was not the one I suspected.** A parked card holds its
+scale so the compositor never has to re-raster it, which is true and worth
+doing, and stepping the scale during an approach on the same reasoning changed
+the frame time from 19.90 ms to 19.90 ms. What actually cost was blending: any
+layer below full opacity has to be composited against what is behind it every
+frame, and behind these is a canvas repainting sixty times a second, so the
+bill follows the card's *area* — which is exactly what coming forward
+increases. Opaque, the same approach runs at 16.62 ms against a 16.60 ms
+control. The fade now belongs to the parking spot rather than to the journey.
+The 900-star field behind strokes as eight paths and does not register at all.
 
 **Sections dissolve into each other.** `SectionHandoff` drives opacity, scale
 and a stepped blur from each section's own edges, so a boundary cross-fades
