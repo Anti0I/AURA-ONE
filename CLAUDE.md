@@ -26,8 +26,8 @@ npm run dev              # Next 16 dev server, Turbopack
 npm run verify           # typecheck + lint + 32 unit tests — run before every commit
 npm run build            # production build
 npm run audit:budget     # asset + JS budget gate; needs a build first
-npm run test:e2e         # 54 Playwright tests, desktop + mobile projects (~7 min)
-npm run test:a11y        # 12 axe / keyboard / reduced-motion tests
+npm run test:e2e         # 52 Playwright tests, desktop + mobile projects (~7 min)
+npm run test:a11y        # 10 axe / keyboard / reduced-motion tests
 npm run test:perf        # scrub continuity, own config, one worker (~30 s)
 npm run assets:all       # regenerate every asset from primitives (~4 min; needs ffmpeg)
 node scripts/shoot.mjs   # screenshot the stage at five scroll positions
@@ -52,7 +52,7 @@ These are the ones that cause silent breakage rather than an error.
    are written straight to `style` on refs, or to the mutable `telemetry` object
    in `src/store/transient.ts`. A full scrub of the stage causes zero
    re-renders; keep it that way. Zustand is for discrete state only — the
-   material, the audio toggle, the story phase (which changes three times in
+   material and the story phase (which changes three times in
    total).
 
 2. **There is exactly one animation loop**, `src/lib/scroll/rafBus.ts`. Never
@@ -329,18 +329,28 @@ nearest viewport edge instead looks equivalent and is not: measured across the
 boundary, the incoming section was fully arrived before the outgoing one had
 begun to leave.
 
-**Interface sounds must never construct the AudioContext.** `tick()` and
-`sweepDown()` used to call `ensureAudio()`, so scrolling past the scanner built
-an audio graph — the lens firing `lock()` at a hotspot is a scroll-driven event,
-not a request for sound. Nothing was audible, because the master gain is zero
-until somebody switches sound on, and that is exactly why it survived: a graph
-and a device handle created for silence. They take the context only if one
-already exists; `ensureAudio()` belongs to the deliberate switch-on path.
+**Nothing may construct the AudioContext except a request for sound.** Interface
+voices — a hover tick, a scanner lock — used to call `ensureAudio()`, so merely
+scrolling past the scanner built an audio graph and a device handle. Nothing was
+audible, and that is exactly why it survived for so long: a whole audio system
+created for silence, on a page that promises it stays off until asked.
 
-**`getByRole("button", { name: /Sound/ })` is a substring, not a name.** It
+The voices are gone now along with the sound switch, so the rule has become
+structural rather than a discipline to remember: the only caller of
+`ensureAudio()` is `playDemo`, and the only caller of that is a click on Play.
+If a second one ever appears, it has to answer why a visitor asked for it.
+
+**A role-name regex is a substring match, not a name match.** `{ name: /Sound/ }`
 matched the audio toggle until the acoustics section added "Play — Sound keeps
 its address.", and then failed as a strict-mode violation in two suites at once.
-Anchor role-name regexes.
+The toggle is gone; the trap is not. Anchor these patterns at both ends.
+
+**`perl -0pi -e` will interpolate `$` and backticks in the replacement.** This
+file was duplicated end to end by one, because a replacement ending in an
+anchored-regex example contained a dollar sign immediately before a backtick —
+which Perl reads as `$PREMATCH`, and dutifully pasted every preceding line of
+the file back into itself. Use the Write tool for prose, or a quoted heredoc;
+this is the third time shell quoting has damaged a file in this repository.
 
 **`will-change` is a promise, not a hint you can leave on.** It holds a
 compositor layer for as long as it is set. The hero copy and the four captions
@@ -396,11 +406,6 @@ change, use `useClientValue` (`src/lib/useClientValue.ts`), which wraps
 `useSyncExternalStore`. Never write a ref during render either — construct
 lazily inside a callback instead.
 
-**A `listbox` may contain only `option` and `group`.** The obvious
-`ul > li > button role="option"` nests three invalid ARIA relationships. The
-palette is the combobox pattern: the input keeps focus,
-`aria-activedescendant` points at the active option.
-
 **`playwright.config.ts` needs `testMatch`.** `testDir: "tests"` otherwise picks
 up `tests/unit` and fails on the first vitest import. It also has to leave
 `perf/**` out, or the performance suite runs two-wide with everything else and
@@ -431,11 +436,10 @@ src/lib/
                             ivf.ts (container reader), matte.ts (WebGL2 recombine)
   scroll/                   rafBus (the one loop), scrollEngine (Lenis), useSectionProgress
                             onScreen (the visibility gate every loop goes through)
-  audio/                    AudioBus, synth (interface), acoustics (the demos)
-  perf/                     fpsMeter
+  audio/                    AudioBus (one context) + acoustics (the three demos)
   motion.ts                 cached environment probes; utils.ts: cn, damp, clamp, easings
 
-src/components/             one directory per section, plus ui/, palette/, devhud/
+src/components/             one directory per section, plus ui/
   configurator/             ConfiguratorLive (WebGL) + ConfiguratorFallback (stills)
   acoustics/                AcousticsPinned (stations + starfield) + AcousticsFlat
                             + useAcousticsDemo (playback and meter, shared)
@@ -538,8 +542,8 @@ depend on there being exactly one.
 **Acoustics.** The only claim on the site made in sound, and it ships no audio
 bytes — a sweep, brown noise with the suppression engaging mid-clip, and a
 panned orbit, all built from oscillators and filters. The meter reads an
-`AnalyserNode` tapped off the demos' own output stage rather than the master
-bus, so it cannot twitch at the ambient bed. It draws its resting state once
+`AnalyserNode` tapped off the demos' own output stage rather than the master,
+so it reads the demonstration and nothing else. It draws its resting state once
 and only subscribes to the frame loop while something is playing.
 
 **The second pinned section.** On a wide viewport the acoustics section is
@@ -629,9 +633,17 @@ The rail matters more here than in the walkthrough. The walkthrough's beats are
 captions; these contain their own controls, so with one beat on screen the rail
 is the only way to reach the second and third demonstrations without scrolling.
 
-**Audio** is entirely synthesised, ambient bed included. One `AudioContext`,
-created on the first gesture. A hover tick can be pitched per element, which a
-sample cannot do without shipping one per variant.
+**Audio** is entirely synthesised and there is exactly one way to hear any of
+it: press Play on one of the three demonstrations. One `AudioContext`, built by
+that click and by nothing else.
+
+There was more, and what went is worth knowing. A pad ran behind the whole site
+and a switch in the header brought it up — a drone that plays until you turn it
+off is not atmosphere, it is a chore, and the switch's honest label would have
+been "start a drone". Losing it took the interface voices with it, and not by
+accident: with no switch, the only consent to audio is pressing Play, so a tick
+fired by scrolling would be either inaudible or unasked for. Both argue for
+deleting it, and it is deleted rather than parked behind a flag.
 
 ---
 
@@ -701,15 +713,15 @@ respects.
 
 | Asset | Budget | Current |
 | --- | --- | --- |
-| First-load JS (gzip) | 180 KB | 165.8 KB |
-| All JS chunks (gzip) | 420 KB | 368.9 KB |
-| Desktop video | 3.70 MB | 3.34 MB / 240 frames |
+| First-load JS (gzip) | 180 KB | 158.9 KB |
+| All JS chunks (gzip) | 420 KB | 362.6 KB |
+| Desktop video | 3.70 MB | 3.30 MB / 240 frames |
 | Mobile video | 1.50 MB | 1.36 MB / 240 frames |
-| Desktop still fallback | 5.00 MB | 4.54 MB / 120 frames |
-| Mobile still fallback | 1.70 MB | 1.51 MB / 60 frames |
-| Peak frame, desktop | 100 KB | 91.2 KB |
-| Peak frame, mobile | 64 KB | 57.9 KB |
-| X-Ray pair @2400px | 240 KB | 189.3 KB |
+| Desktop still fallback | 5.00 MB | 4.20 MB / 120 frames |
+| Mobile still fallback | 1.70 MB | 1.44 MB / 60 frames |
+| Peak frame, desktop | 100 KB | 78.5 KB |
+| Peak frame, mobile | 64 KB | 52.8 KB |
+| X-Ray pair @2400px | 240 KB | 188.8 KB |
 | Noise tile | 6 KB | 4.1 KB |
 | Audio files | 0 | 0 — everything is synthesised |
 
@@ -733,7 +745,6 @@ against the tree it was written for; the gate is the authority, not this table.
 
 ## Known items
 
-- `src/data/author.ts` still holds placeholder GitHub and LinkedIn URLs.
 - `assets-src/device/scene.mjs` is imported by the app through the `@device/*`
   alias and typed by a hand-written `scene.d.mts`. It stays plain ESM because
   the prerender harness serves it straight to headless Chromium through an
@@ -747,3 +758,318 @@ against the tree it was written for; the gate is the authority, not this table.
 - `make-noise.mjs` asks the PNG palette for 8 greys and gets 4 — the quantiser
   merges what it judges indistinguishable at 3% opacity. `LEVELS` is a ceiling,
   not a result, and the script logs what it wrote rather than what it asked for.
+
+---
+
+## What this project is, and what is unusual about it
+
+A marketing page for a product that does not exist, built so that everything
+behind the marketing is real. That inversion is the whole idea: the hardware is
+invented and says so in the footer, while the rendering, the asset pipeline and
+the memory accounting are not.
+
+Three constraints were fixed before a line was written, and they turned out to
+be the reason there is anything interesting here at all.
+
+**No paid services, for the author or for a visitor.** No CDN with a bill, no
+model API, no analytics vendor, no font subscription.
+
+**Nothing is downloaded that the visitor did not ask for.** Every section below
+the fold is code-split; the audio system does not exist until somebody presses
+Play; the mobile stream is a third the size of the desktop one and the choice is
+made before the first byte.
+
+**Every asset is generated from code.** No stock photography, no bought 3D
+model, no HDRI, no texture files, no audio files. `npm run assets:all` rebuilds
+the 240-frame product render, both video streams, the PCB and die textures, the
+X-ray pair and the noise tile from nothing, in about four minutes.
+
+The third constraint is the one that paid off. A page that cannot buy its
+visuals has to earn them, and the pipeline that produces them ends up being the
+substance rather than the scaffolding. It also makes the repository honest:
+clone it, run one command, and every pixel is reproducible.
+
+### The things worth looking at
+
+**A video used as a frame sequence.** The walkthrough is 240 pre-rendered
+frames scrubbed against scroll. Conventional wisdom says video cannot be
+scrubbed — and that is true of the `<video>` element, where `currentTime` is a
+*request* to seek that the decoder answers whenever it likes. It is not true of
+video. `VideoDecoder` takes chunks and returns frames in order, so the same 240
+pictures cost 3.30 MB with inter-frame prediction against 9.09 MB as WebP
+stills. The stills remain as the fallback, and a test deletes `VideoDecoder` to
+prove that path still draws.
+
+**No container.** MP4 would mean shipping a demuxer — mp4box.js is ~60 KB
+gzipped. IVF is a 32-byte file header and twelve bytes per frame: thirty lines
+of `DataView` and no dependency. Keyframe flags are read out of VP9's own
+uncompressed header, so the file describes itself.
+
+**Alpha, which video does not have.** Colour and matte are packed side by side
+in one frame with a black gutter between them, because 4:2:0 chroma is shared
+across two pixels and without the gutter the seam bleeds. They are recombined in
+a WebGL2 shader inside the worker with no readback, and what comes out is an
+ordinary `ImageBitmap` — so the cache, the byte budget and the draw path never
+learn any of it happened.
+
+**A scheduler that measures itself.** The player learns two things about the
+machine it is on: how many frames a second the whole chain delivers, and how
+long one round trip takes. It samples the timeline at a stride matching the
+first and aims each request `speed × latency` frames ahead of the playhead, so
+the frame lands *at* the scroll rather than behind it. Neither can be a constant:
+the same build composites a frame in 0.1 ms on a discrete GPU and 32 ms on a
+software rasteriser.
+
+**Two pinned sections and no scroll plugin.** Both are a tall section, one
+`position: sticky` child, and progress from a single `getBoundingClientRect` per
+frame. That is about 30 KB of ScrollTrigger, a pin-spacer element and a class of
+refresh bugs avoided, for roughly forty lines.
+
+**Sound with no audio files.** Three demonstrations built from oscillators,
+filters and a generated noise buffer — a log sweep, brown noise with the
+suppression engaging mid-clip, and a panned orbit. The meter reads an
+`AnalyserNode` tapped off the demos' own output stage, which is also how a
+headless browser with no audio hardware can be asked whether a sound was really
+made.
+
+**Budgets that fail the build.** Eleven of them, in one file read by both the
+gate and the page that quotes them — because those two disagreed once, and a
+numbers page that drifts is worse than no numbers.
+
+---
+
+## Problems, and what they cost
+
+Every entry here was found by measuring rather than by looking, and most of them
+were invisible until the right number was taken. They are in the order they were
+hit.
+
+### The scrub that could not keep up
+
+The report was "scroll the first section fast and the video skips twenty
+frames". It did. The canvas covered 24 frames while the playhead crossed 239 —
+a following ratio of **0.10**.
+
+Three causes, none of them the obvious one.
+
+A frame requested at N arrives `latency` later, by which point the scroll is at
+N + speed × latency. On a software rasteriser that is sixty frames, against a
+search range of twelve, so the canvas had nothing to show and froze. The fix was
+to measure round-trip time as a *time* rather than as a distance in frames: a
+distance is only true at one scroll speed, so it has to be relearnt exactly when
+it is needed and has not converged.
+
+Scrolling back up was the expensive direction. A frame decodes only from the
+keyframe at or before it, so a reverse scrub asks for a descending ladder with
+every rung behind the decode head — and serving the nearest rung first leaves
+the next one behind the *new* head as well, costing a decoder reset per frame.
+Going to the bottom of the ladder instead turns the whole thing into one rewind
+and one forward sweep. Largest gap: 128–144 down to 42–80.
+
+And `postMessage` is FIFO, so a window sent *after* the requests it authorises
+loses them. The worker measured each request against a window it had a tick ago
+and silently dropped the ones that had just come into range; the player counted
+those as outstanding and never re-asked. Measured as the playhead sitting on
+frame 163 with the canvas showing 149 and 27 requests pending, permanently.
+
+Following ratio now **1.00–1.08**, and it is the figure the perf suite asserts
+on precisely because it does not simply get worse on a slower machine.
+
+### 190 MB of bitmaps
+
+A guarded cache window bigger than the byte ceiling makes the ceiling
+decorative. `BitmapLRU` stopped evicting once everything left was guarded, so at
+1440² — 7.91 MB a frame, 29 in the window — it sat at 189.8 MB against a stated
+160. The guard still beats the count limit and no longer beats the byte limit,
+and the player sizes its window from what the budget affords.
+
+Related, and the reason it went unnoticed: **a frame count is not a memory
+budget.** The same 24 frames are 39 MB at 640² and 199 MB at 1440².
+
+### A `subarray` that pinned 181 MB
+
+`IvfReader` concatenated each network chunk onto a growing accumulator and
+handed out views into it — so every frame kept its whole accumulator alive. 181
+MB retained and 359 MB copied for a 3.34 MB stream, on the worker thread, during
+the hero. It now copies each frame once into a buffer of its own size, and its
+queue uses a head pointer rather than `shift()`, because shifting is O(n) in
+queue length and the queue is longest exactly when the chunks are smallest.
+
+### The blur nobody asked for
+
+Reported as "there is a strange blur when I step through the video slowly".
+There was. The draw kept the playhead's fractional position and cross-faded the
+two frames it sat between.
+
+Measured: the walkthrough turns 360° across the 72 frames of its rotate phase —
+5° a frame, PSNR 20.7 dB between neighbours — so the blend read as a double
+exposure, with the mic holes, the indicator and the port ring visibly doubled.
+Worse at rest than in motion, because the damping settles on an arbitrary
+fraction and the ghost then stays put forever.
+
+It was also buying nothing. At 40px wheel steps the playhead crosses about 2.8
+frames, so nearly every step lands on a different frame anyway: **58 distinct
+pictures across 60 steps without the blend, 59 with**. The 87-against-48 figure
+that had justified it compared the *video* against the *still fallback*, which
+has half the frames — it was never a measurement of the blend at all.
+
+### Two paragraphs at once
+
+Reported as "the text goes weird when I scroll slowly". The acoustics beats
+cross-wiped: beat N's exit and beat N+1's entrance ran over exactly the same
+stretch of scroll, about 36svh, in which half of one paragraph sat above half of
+the next and neither could be read. Stopping anywhere in it was guaranteed.
+
+The fix is not a shorter transition, it is a gap. Each beat now owns a disjoint
+window with empty scroll either side. That leaves a stretch with nothing on it,
+which in the old design would have read as a broken page — and is the reason the
+section became a flight between three stations with a starfield running at its
+fastest exactly where the copy is absent.
+
+`tests/unit/stations.test.ts` checks the invariant at a thousand scroll
+positions in a millisecond, which is the argument for putting the arithmetic in
+a module of its own: forty browser positions at three seconds each still only
+samples forty.
+
+### "One scroll and the card is just there"
+
+Two causes, and the second one mattered more.
+
+The approach owned a fifth of a station — 15svh, a wheel notch and a half from
+parked to arrived. It now gets roughly twice the scroll the retreat does.
+
+But length alone would not have fixed it. The stage ran on `easeInOutQuart`,
+which parks near 0 and near 1 and crosses the middle at four times the average
+rate, so a scroll-driven approach on that curve reads as *nothing, snap,
+nothing* however much scroll it is handed. `smoothstep` is nearly linear through
+the middle, so a notch of wheel buys a proportional step closer.
+
+### The expensive thing was not the suspected thing
+
+The 3D acoustics stage looked free. It was measured with the scroll *parked*,
+which could not have found anything — blending and rasterisation only happen
+while something is changing.
+
+Measured properly (a fixed scroll rate, against a control scrolling the same
+section where nothing moves, A/B interleaved in one session because the machine
+drifts by more than the effect):
+
+    translucent card, approach   19.90 ms/frame, 24 long frames
+    control, same scroll rate    16.69 ms/frame,  1 long frame
+    opaque card, approach        16.62 ms/frame,  0 long frames
+
+The suspicion was rasterisation, since a scale change forces a layer to re-raster
+to keep text sharp. Stepping the scale to cut those moved the figure from 19.90
+ms to 19.90 ms, and the step was removed again rather than kept as machinery
+that earns nothing. What cost was blending, and the bill follows the card's
+*area* — which is exactly what coming forward increases. The fade now belongs to
+the parking spot rather than to the journey.
+
+### An audio graph built for silence
+
+Interface voices called `ensureAudio()`, so scrolling past the scanner
+constructed an `AudioContext` and a device handle. Nothing was audible, because
+the master gain sat at zero until somebody switched sound on — which is exactly
+why it survived: an entire audio system created for silence, on a page that
+promises it stays off until asked.
+
+### A trap file that was wrong
+
+An entry here claimed `filter` breaks `position: sticky`. It was written from
+general knowledge rather than from a measurement, and it is false. Probed in the
+target browser:
+
+    filter: blur()             STICKS
+    will-change: transform     STICKS
+    transform: translateZ(0)   STICKS
+    contain: paint             STICKS
+    overflow: hidden           BROKEN
+    overflow-x: hidden         BROKEN
+    overflow: clip             STICKS
+
+`transform`, `filter` and `will-change` create a containing block for *fixed*
+descendants; sticky is not fixed. A false entry in a traps file is worse than a
+missing one, because it is trusted.
+
+### Four loops with no end
+
+Four separate sections were written with an animation loop that never stopped —
+the scanner sweep, the configurator spin, the walkthrough playhead, the spectrum
+meter. Every one of them kept drawing at the display's refresh rate for the rest
+of the session, several screens up the page, in a background tab. Measured parked
+at the footer with every section mounted and none visible: **720 `clearRect` and
+720 `getBoundingClientRect` in three seconds, against 0 after.**
+
+Writing the same bug four times is what moved the gate into
+`onFrameWhileVisible` rather than leaving it to be remembered at each call site.
+
+### Tests that lied
+
+Worth their own entry, because more time went into these than into some of the
+features.
+
+*Fixed sleeps in canvas tests are a flake generator.* Sleeps tuned on an idle
+machine fail under a parallel run. `scrubTo` waits for the frame to change **and
+then settle** — waiting only for stability exits immediately, because right
+after a scroll the canvas still holds the previous frame and is briefly
+perfectly stable.
+
+*A performance test must not share the machine.* Run beside the rest of the
+suite, the perf suite reported a largest gap of 169 where it reports 42–80
+alone. That is why it has its own config at one worker, and why it asserts on
+the following ratio — the one figure that does not simply degrade on slow
+hardware — while merely logging granularity, which does.
+
+*Two tests were failing on their own budget, not on their claim.* Both reported
+as page faults: one as "the walkthrough never drew a frame", one as
+`frame.evaluate: Test timeout`. Both were the default 30 s test timeout expiring
+around a cold boot and an axe pass over the longest document on the site.
+Raising the *poll* on the first achieved nothing, which is the tell.
+
+*Headless Chromium composites in software, and it is roughly 300× slower.*
+Profiling headless and optimising for what you find is optimising for a machine
+nobody uses. Check the renderer string before believing a number — and note it
+cuts both ways, which is why the CI budgets are looser than the figures a real
+browser reports.
+
+### Shell quoting, three times
+
+Twice a heredoc broke on backticks and quotes while writing TypeScript. The
+third time was worse: a `perl -0pi -e` replacement ended with a dollar sign
+immediately before a backtick, which Perl reads as `$PREMATCH`, and it pasted
+every preceding line of this file back into itself — duplicating the document
+end to end. Prose and code go through the editor, not through a shell one-liner.
+
+---
+
+## What was removed, and why
+
+Deletions are decisions too, and these are the ones that would otherwise look
+like something went missing.
+
+**A power model.** A battery capacity, per-mode draw figures and a runtime
+integrator feeding an interactive tile, a generated PDF and a scripted answer.
+Internally consistent, and still invented — and an invented number presented as
+a measurement is the one thing a portfolio piece cannot afford.
+
+**An ambient pad and a sound switch.** A drone that plays until you turn it off
+is not atmosphere, it is a chore, and the switch's honest label would have been
+"start a drone". Losing it took the interface voices with it: with no switch,
+the only consent to audio is pressing Play, so a tick fired by scrolling would
+be either inaudible or unasked for.
+
+**A dev inspector and a command palette.** Two switches in the footer that made
+the page a toy for the person who built it. What the inspector measured is still
+measured — `?debug=1` publishes the same object, and `tests/perf` reads it.
+
+**Coordinates beside the cursor.** A number that changes as fast as your hand
+moves and means nothing to anybody reading it, printed next to the pointer
+because it looks like instrumentation. Set dressing pretending to be telemetry,
+on a site that has real telemetry elsewhere. The crosshair went with it — aiming
+arms and a ranging circle imply a precision the scanner does not have.
+
+**An electric cyan accent.** The colour every hardware concept page reaches for,
+and most of the reason they all look alike. The accent is warm bone now, with no
+hue at all, and the change went all the way down: the PCB traces, the die
+floorplan and the core's emissive material were regenerated, because a bone
+interface over a cyan product reads as a mistake rather than as a choice.

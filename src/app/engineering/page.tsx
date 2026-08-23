@@ -469,8 +469,8 @@ export default function EngineeringPage() {
 
         <H3>A frame count is not a memory budget</H3>
         <P>
-          The dev inspector on the main page found this within a minute of
-          existing: the cache was pinning 190 MB on an ordinary laptop viewport.
+          A telemetry readout found this within a minute of existing: the cache
+          was pinning 190 MB on an ordinary laptop viewport.
           Twenty-four frames is 39 MB decoded at 640² and 199 MB at 1440², so a
           cache sized by count alone is either wasteful on a small screen or
           dangerous on a large one — and it is the second one you hear about,

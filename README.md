@@ -55,9 +55,9 @@ npm run build && npm run audit:budget && npm run test:e2e && npm run test:a11y &
   be checked by asserting on the DOM — everything that matters happens inside a
   canvas React never re-renders — so those tests read pixels: coverage, frame
   fingerprints, and mean luminance for the finish tests.
-- **12 accessibility tests**: an axe audit of the chrome, of every lazy section
-  once mounted, and of the command palette while open, plus the skip link,
-  keyboard reachability, and the reduced-motion path.
+- **10 accessibility tests**: an axe audit of the chrome, of every lazy section
+  once mounted and of the engineering notes, plus the skip link, keyboard
+  reachability, and the reduced-motion path.
 - **2 scrub-performance tests**, in their own config at one worker. A
   performance number that changes by a factor of four depending on what else is
   running is not a number: measured beside the rest of the suite this reported a
@@ -81,14 +81,14 @@ with slack in it is a budget nobody respects.
 
 | Asset | Budget | Current |
 | --- | --- | --- |
-| First-load JS (gzip) | 180 KB | 164 KB |
-| Desktop video | 3.70 MB | 3.34 MB · 240 frames |
+| First-load JS (gzip) | 180 KB | 158.9 KB |
+| Desktop video | 3.70 MB | 3.30 MB · 240 frames |
 | Mobile video | 1.50 MB | 1.36 MB · 240 frames |
-| Desktop still fallback | 5.00 MB | 4.54 MB · 120 frames |
-| Mobile still fallback | 1.70 MB | 1.51 MB · 60 frames |
-| Peak frame, desktop | 100 KB | 91.2 KB |
-| All JS chunks (gzip) | 420 KB | 360 KB |
-| X-Ray pair @2400px | 240 KB | 189.3 KB |
+| Desktop still fallback | 5.00 MB | 4.20 MB · 120 frames |
+| Mobile still fallback | 1.70 MB | 1.44 MB · 60 frames |
+| Peak frame, desktop | 100 KB | 78.5 KB |
+| All JS chunks (gzip) | 420 KB | 362.6 KB |
+| X-Ray pair @2400px | 240 KB | 188.8 KB |
 | Noise tile | 6 KB | 4.1 KB |
 | Audio files | 0 | 0 — everything is synthesised |
 
@@ -202,9 +202,11 @@ one. It draws only while on screen, because an idle spin has no natural end.
 recoloured at draw time with a brightness pass, a `color` blend, an `overlay`
 pass and a `destination-in` clip.
 
-**All audio is synthesised**, ambient bed included. No files, no licences,
-nothing to preload, and a hover tick that can be pitched per element — which a
-sample cannot do without shipping one per variant.
+**All audio is synthesised**, and there is exactly one way to hear any: press
+Play on one of the three acoustics demonstrations. No files, no licences,
+nothing to preload, and no switch — a site-wide ambient pad and a sound toggle
+both existed and both went, because a drone that runs until you turn it off is
+not atmosphere.
 
 ## Swapping in a Blender render
 
