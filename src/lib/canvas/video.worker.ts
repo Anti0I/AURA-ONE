@@ -15,7 +15,7 @@
  * `VideoDecoder` has no seeking in it: you hand it chunks, it hands back
  * frames, in order. What that buys is inter-frame prediction, and a slowly
  * rotating object is about as predictable as content gets — 240 frames cost
- * 3.34 MB here against 9.09 MB as WebP stills.
+ * 3.87 MB here against 9.95 MB as WebP stills.
  *
  * Three things this file has to get right:
  *
@@ -25,7 +25,7 @@
  *    thrown away — the player is about to want most of them, and they have
  *    already been paid for.
  *  - **Streaming.** Parsing starts on the first network chunk, so the hero can
- *    draw as soon as the opening keyframe has landed rather than after 3.34 MB.
+ *    draw as soon as the opening keyframe has landed rather than after 3.87 MB.
  *  - **Closing frames.** A `VideoFrame` pins a decoder buffer. Hold a handful
  *    without closing them and the decoder stalls waiting on its own pool.
  */

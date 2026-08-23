@@ -90,7 +90,7 @@ export default function EngineeringPage() {
 
         <H3>The premise was never about the codec</H3>
         <P>
-          Which is what the first version got wrong, at a cost of 9.09 MB.
+          Which is what the first version got wrong, at a cost of 9.95 MB.
           Everything above is true of the{" "}
           <Code>&lt;video&gt;</Code> <em>element</em>, not of video. WebCodecs
           hands you the decoder directly: <Code>VideoDecoder</Code> takes
@@ -102,7 +102,7 @@ export default function EngineeringPage() {
           So the walkthrough plays a VP9 stream and keeps the stills as the
           fallback. What that buys is inter-frame prediction, and a slowly
           rotating object is about as predictable as content gets. The same 240
-          frames cost a third as much, which is what paid for doubling the frame
+          frames cost under two fifths as much, which is what paid for doubling the frame
           count in the first place.
         </P>
 
@@ -119,13 +119,13 @@ export default function EngineeringPage() {
             ],
             [
               "Same frames as WebP stills",
-              "9.09 MB — 2.7× the video, for identical pictures",
+              "9.95 MB — 2.6× the video, for identical pictures",
             ],
             [
               "Still fallback",
               `${desktop.frameCount} / ${mobile.frameCount} frames · ${mb(desktop.totalBytes)} / ${mb(mobile.totalBytes)}`,
             ],
-            ["Render time", "115 s, software WebGL"],
+            ["Render time", "145 s, software WebGL"],
           ]}
         />
 
@@ -366,7 +366,7 @@ export default function EngineeringPage() {
           The container reader concatenated every network chunk onto a growing
           buffer and handed out views into it, so each frame kept its whole
           accumulator alive: <Numeric>181 MB</Numeric> retained and{" "}
-          <Numeric>359 MB</Numeric> copied for a 3.34 MB stream, on the worker
+          <Numeric>359 MB</Numeric> copied for a 3.87 MB stream, on the worker
           thread, during the hero.
         </P>
         <P>
@@ -540,6 +540,38 @@ export default function EngineeringPage() {
           without that it would keep rendering at the display&rsquo;s refresh
           rate several sections further down the page and in a background tab —
           spending someone&rsquo;s battery to animate what nobody is looking at.
+        </P>
+
+        <H3>Emissive is not lighting</H3>
+        <P>
+          Every part inside the shell was, for a long time, a flat base colour
+          with its entire texture on <Code>emissiveMap</Code> — and it showed.
+          An emissive pixel is self-lit: it ignores every light in the scene,
+          takes no shading across a curve, throws no highlight and carries no
+          depth. Three good drawings of a board, a die and a grille, stuck to
+          three primitives, which is exactly how they read.
+        </P>
+        <P>
+          Each generator now paints three canvases from one set of drawing
+          calls — colour, packed roughness and metalness, and a height map that
+          becomes a normal map through a Sobel pass — so the internals are lit
+          by the same three lights as the shell. Roughness turns out to matter
+          more than colour: bare gold at <Numeric>0.18</Numeric> against solder
+          mask at <Numeric>0.78</Numeric> is what separates a pad from a board
+          at a glance, and no amount of drawing does that while everything on
+          the surface has the same gloss.
+        </P>
+        <P>
+          It is not free. The frame at the end of the push-in went from{" "}
+          <Numeric>78.5 KB</Numeric> to <Numeric>147.9 KB</Numeric>, and the
+          video stream from <Numeric>3.30</Numeric> to{" "}
+          <Numeric>3.87 MB</Numeric>. Both were checked for something cheap to
+          give back before the budgets were moved: cutting the die&rsquo;s
+          finest detail bought 5%, dropping WebP quality from 64 to 48 bought
+          16% and cost visibly more than that, and splitting the frame in half
+          priced the two halves in proportion to their area — the signature of
+          a picture that is uniformly denser, not one with a hot spot. The
+          frame costs more because it contains more.
         </P>
 
         <H3>The composite it replaced, which is still the fallback</H3>

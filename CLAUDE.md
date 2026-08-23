@@ -103,6 +103,32 @@ These are the ones that cause silent breakage rather than an error.
 
 Each of these cost real time. They are all still live.
 
+**Canvas drawing is deferred, so the profile blames the wrong line.** A 2D
+canvas queues its paint calls and replays them on first use. If that first use
+is `getImageData`, the whole bill — replay plus a synchronous readback off the
+GPU — lands on the read. Timing the sections of `pcbTextures` put 4514 ms of a
+4604 ms run inside the Sobel pass and ~3 ms in all the drawing, which is a lie
+in both directions. Two things follow. Any canvas that will be read back must
+be created with `getContext("2d", { willReadFrequently: true })` — that one
+argument took the board from 4604 ms to 58 ms. And to attribute cost inside a
+generator you have to force a flush at each mark, or you are timing when the
+queue happened to drain.
+
+**`use` is a React hook, even in a file with no React in it.** Naming a local
+helper `use()` makes `react-hooks/rules-of-hooks` fire on every call site:
+fifty-three errors from `assets-src/device/textures.mjs`, which is a plain ESM
+module rendered in headless Chromium. The helper is called `paint()`.
+
+**Emissive is not lighting.** An `emissiveMap` is self-lit: it ignores every
+light in the scene, takes no shading across a form, throws no specular and
+casts no sense of depth. Every internal part used to be a flat base colour with
+its whole texture on `emissiveMap`, which is exactly why they read as decals
+stuck to primitives. A texture only becomes a surface once it feeds `map`,
+`roughnessMap`, `metalnessMap` and `normalMap`. Emissive still has a job here —
+the X-Ray pose and the push-in lift it to keep the internals legible through
+the shell — but as a stylisation *on top of* a lit surface, at a twentieth of
+its former strength.
+
 **`tailwind-merge` and the custom type scale.** It assumes any unrecognised
 `text-*` class is a colour, so `text-display text-ink` reads as a conflict and
 the font size is silently dropped — a headline at 16px with no error anywhere.
@@ -196,7 +222,7 @@ frame 163 with the canvas showing 149 and 27 requests pending, permanently.
 **A `subarray` pins the buffer it was cut from.** `IvfReader` used to
 concatenate each network chunk onto a growing accumulator and hand out views
 into it, so every frame kept its whole accumulator alive — 181 MB retained and
-359 MB copied for a 3.34 MB stream, on the worker thread, during the hero. It
+359 MB copied for a 3.87 MB stream, on the worker thread, during the hero. It
 now copies each frame once into a buffer of its own size. Its queue uses a head
 pointer rather than `shift()`: shifting is O(n) in queue length and the queue
 is longest exactly when the chunks are smallest.
@@ -419,7 +445,8 @@ overrides only what runs and how much runs beside it.
 ```
 assets-src/device/          procedural Three.js scene + texture generators
   scene.mjs                 geometry, materials, timeline, X-Ray poses, hotspot projection
-  textures.mjs              PCB traces, die floorplan, grille, brushed roughness
+  textures.mjs              albedo/roughness-metalness/normal sets for board,
+                            die, driver cone, cell wrap, grille and shell
   index.html                render harness; importmap resolves into node_modules
 
 scripts/
@@ -483,7 +510,7 @@ breaks.
 **Why a video, given the whole player exists because video cannot be scrubbed.**
 That is true of the `<video>` element, not of video: `currentTime` is a
 request to seek, `VideoDecoder` is not. Inter-frame prediction then costs
-3.34 MB where the same 240 pictures cost 9.09 MB as stills.
+3.87 MB where the same 240 pictures cost 9.95 MB as stills.
 
 **Seeking.** A frame decodes only from the keyframe at or before it, so a
 backwards jump costs up to one GOP (16). Frames passed on the way are
@@ -715,12 +742,12 @@ respects.
 | --- | --- | --- |
 | First-load JS (gzip) | 180 KB | 158.9 KB |
 | All JS chunks (gzip) | 420 KB | 362.6 KB |
-| Desktop video | 3.70 MB | 3.30 MB / 240 frames |
-| Mobile video | 1.50 MB | 1.36 MB / 240 frames |
-| Desktop still fallback | 5.00 MB | 4.20 MB / 120 frames |
-| Mobile still fallback | 1.70 MB | 1.44 MB / 60 frames |
-| Peak frame, desktop | 100 KB | 78.5 KB |
-| Peak frame, mobile | 64 KB | 52.8 KB |
+| Desktop video | 4.20 MB | 3.87 MB / 240 frames |
+| Mobile video | 1.50 MB | 1.34 MB / 240 frames |
+| Desktop still fallback | 5.40 MB | 4.97 MB / 120 frames |
+| Mobile still fallback | 1.70 MB | 1.50 MB / 60 frames |
+| Peak frame, desktop | 160 KB | 147.9 KB |
+| Peak frame, mobile | 74 KB | 68.1 KB |
 | X-Ray pair @2400px | 240 KB | 188.8 KB |
 | Noise tile | 6 KB | 4.1 KB |
 | Audio files | 0 | 0 — everything is synthesised |
@@ -796,7 +823,7 @@ frames scrubbed against scroll. Conventional wisdom says video cannot be
 scrubbed — and that is true of the `<video>` element, where `currentTime` is a
 *request* to seek that the decoder answers whenever it likes. It is not true of
 video. `VideoDecoder` takes chunks and returns frames in order, so the same 240
-pictures cost 3.30 MB with inter-frame prediction against 9.09 MB as WebP
+pictures cost 3.87 MB with inter-frame prediction against 9.95 MB as WebP
 stills. The stills remain as the fallback, and a test deletes `VideoDecoder` to
 prove that path still draws.
 
@@ -890,7 +917,7 @@ budget.** The same 24 frames are 39 MB at 640² and 199 MB at 1440².
 
 `IvfReader` concatenated each network chunk onto a growing accumulator and
 handed out views into it — so every frame kept its whole accumulator alive. 181
-MB retained and 359 MB copied for a 3.34 MB stream, on the worker thread, during
+MB retained and 359 MB copied for a 3.87 MB stream, on the worker thread, during
 the hero. It now copies each frame once into a buffer of its own size, and its
 queue uses a head pointer rather than `shift()`, because shifting is O(n) in
 queue length and the queue is longest exactly when the chunks are smallest.
@@ -1032,13 +1059,82 @@ nobody uses. Check the renderer string before believing a number — and note it
 cuts both ways, which is why the CI budgets are looser than the figures a real
 browser reports.
 
-### Shell quoting, three times
+### Internals that looked like stickers
+
+The complaint was that the exploded view looked cheap, and the first instinct
+was the obvious one: these are primitives with pictures on them, so the fix
+must be geometry — a board with parts standing off it, a package with a lead
+frame, a driver with a basket. That instinct was wrong, or at least premature.
+
+Reading the material setup first turned up something better. Every internal
+part was a flat base colour with its *entire* texture on `emissiveMap` and
+nothing on `map`, `roughnessMap`, `metalnessMap` or `normalMap`. Emissive is
+self-lit. It ignores every light in the scene, takes no shading across a form,
+throws no specular and carries no depth — so three good drawings were being
+displayed rather than lit, which is precisely what "sticker" means. The whole
+board also had one uniform roughness of 0.62, so copper, mask and silkscreen
+had identical gloss, which happens on no real board ever made.
+
+The generators now paint three canvases from one set of drawing calls — albedo,
+roughness and metalness packed into G and B of one texture the way glTF does
+it, and a height map that becomes a normal map through a Sobel pass. Painting
+them in lockstep is not tidiness: a roughness map drawn in a second pass drifts
+from the albedo by a pixel here and there, and a pad whose gloss is half a pixel
+off its colour looks *wrong* in a way that is very hard to trace back to the
+texture.
+
+Two things then had to follow the change rather than lead it. The emissive
+levels the timeline drives are now a twentieth of what they were, because they
+were standing in for lighting and are now a stylisation on top of it. And the
+driver had to be turned: its cone faces the bezel, which is the ear side, which
+is away from the camera — so built correctly, the one surface worth looking at
+was the one nobody would ever see. `addPart` takes an optional rotation applied
+in step with the explode, which is what exploded views are for.
+
+### 4.5 seconds hiding in the wrong line
+
+Generating the six texture sets took 4.6 s, which is fine at prerender time and
+not fine in the configurator, where the same module runs on the visitor's main
+thread. Timing each generator put 4604 ms of it in the board and 245 ms in the
+other five. Timing each *section* of the board put 4514 ms in the Sobel pass and
+about 3 ms in every drawing call that fed it.
+
+That reading was a lie, and the shape of the lie is the useful part: canvas
+drawing is deferred. The paint calls queue, and the first `getImageData` pays
+for replaying the lot plus a synchronous readback off the GPU. The profile
+blames whichever line happens to touch the pixels.
+
+The fix is `getContext("2d", { willReadFrequently: true })` on the canvases that
+get read back — 4604 ms to 58 ms, one argument. The confirmation came free: a
+leftover probe still reading an unhinted canvas took 6280 ms for the same work.
+
+Two guards against believing this kind of number again. To attribute cost
+inside a generator, force a flush at each mark, or you are timing when the
+queue drained. And of the three canvases per part, only the height map is ever
+read into JS — the other two go to `texImage2D` and never come back — so the
+hint belongs on exactly one of them.
+
+What it settles at, measured in a real browser on a discrete GPU rather than in
+headless: 195 ms for all six sets — board 51, die 40, brushed 32, cell 27,
+driver 26, grille 20. That is one blocking chunk on the visitor's main thread,
+and it is not free. It is also paid once, on mounting a lazy section that
+already fetches three.js and builds an environment map, and it is the whole
+price of generating six complete PBR material sets in the browser instead of
+downloading them. The Sobel passes stay at 512² for that reason: a normal map
+describes which way a surface leans, which is low-frequency, and matching the
+1024² albedo would quadruple the only part of this that is pure main-thread JS
+for a difference invisible at the size these parts are drawn.
+
+### Shell quoting, four times
 
 Twice a heredoc broke on backticks and quotes while writing TypeScript. The
 third time was worse: a `perl -0pi -e` replacement ended with a dollar sign
 immediately before a backtick, which Perl reads as `$PREMATCH`, and it pasted
 every preceding line of this file back into itself — duplicating the document
-end to end. Prose and code go through the editor, not through a shell one-liner.
+end to end. The fourth was a `node -e` patch script whose replacement text
+carried literal `\n` escapes outside any string, which left the shell hunting a
+closing backtick that was never coming. Prose and code go through the editor,
+not through a shell one-liner.
 
 ---
 

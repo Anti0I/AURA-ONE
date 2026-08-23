@@ -33,7 +33,7 @@ That runs four steps, which can also be run individually:
 | Command | What it does | Time |
 | --- | --- | --- |
 | `npm run assets:noise` | 128² tileable noise, palette PNG, 4.1 KB | instant |
-| `npm run assets:prerender` | Three.js scene through headless Chromium → 240 PNGs + X-Ray pair + hotspot anchors | ~115 s |
+| `npm run assets:prerender` | Three.js scene through headless Chromium → 240 PNGs + X-Ray pair + hotspot anchors | ~145 s |
 | `npm run assets:encode` | sharp → WebP/AVIF fallback variants + `public/seq/manifest.json` | ~25 s |
 | `npm run assets:video` | ffmpeg → the VP9 streams the walkthrough actually plays | ~90 s |
 
@@ -82,11 +82,11 @@ with slack in it is a budget nobody respects.
 | Asset | Budget | Current |
 | --- | --- | --- |
 | First-load JS (gzip) | 180 KB | 158.9 KB |
-| Desktop video | 3.70 MB | 3.30 MB · 240 frames |
-| Mobile video | 1.50 MB | 1.36 MB · 240 frames |
-| Desktop still fallback | 5.00 MB | 4.20 MB · 120 frames |
-| Mobile still fallback | 1.70 MB | 1.44 MB · 60 frames |
-| Peak frame, desktop | 100 KB | 78.5 KB |
+| Desktop video | 4.20 MB | 3.87 MB · 240 frames |
+| Mobile video | 1.50 MB | 1.34 MB · 240 frames |
+| Desktop still fallback | 5.40 MB | 4.97 MB · 120 frames |
+| Mobile still fallback | 1.70 MB | 1.50 MB · 60 frames |
+| Peak frame, desktop | 160 KB | 147.9 KB |
 | All JS chunks (gzip) | 420 KB | 362.6 KB |
 | X-Ray pair @2400px | 240 KB | 188.8 KB |
 | Noise tile | 6 KB | 4.1 KB |
@@ -102,7 +102,7 @@ the size they were encoded.
 `currentTime` is a *request* to seek that the element answers whenever it
 likes — but that is a property of the element, not of video. `VideoDecoder`
 takes chunks and returns frames in order, which buys inter-frame prediction:
-3.34 MB against 9.09 MB for the same 240 pictures as WebP stills. The still
+3.87 MB against 9.95 MB for the same 240 pictures as WebP stills. The still
 sequence stays as the fallback where WebCodecs is missing, and a test deletes
 `VideoDecoder` to prove that path still draws.
 
@@ -157,6 +157,25 @@ and a stepped blur from each section's own edges, so a boundary cross-fades
 instead of one panel sliding out from under another. The blur radius is
 quantised because `filter` re-rasterises the layer on every distinct value,
 where opacity and transform are free.
+
+**The internals are lit, not painted.** Every part inside the shell — board,
+neural core, driver, cell, grille — used to be a flat base colour with its
+whole texture on `emissiveMap`, and looked it: an emissive pixel is self-lit,
+so it ignores every light in the scene, takes no shading across a form, throws
+no highlight and has no depth. A picture of a board, stuck to a box. Each
+generator now paints albedo, packed roughness/metalness and a height map from
+one set of drawing calls, and the height becomes a normal map through a Sobel
+pass, so the parts are lit by the same three lights as the shell. Roughness is
+what does the work: bare gold at 0.18 beside solder mask at 0.78 separates
+*pad* from *board* far harder than either colour does.
+
+**A texture only looks made of something if it is made of something.** The
+board is a ground pour under mask with buses routed as parallel bundles at a
+fixed pitch — offsetting a rectilinear path equally on both axes keeps every
+corner square and staggers them the way a real fan-out does — then populated
+with chip parts, leaded ICs, a can and a connector, and silkscreened. The core
+is an exposed die wire-bonded to its substrate, which is the one detail that
+says *silicon* before a viewer has read anything else in the frame.
 
 **AVIF for the X-Ray stills, WebP for the fallback sequence.** AVIF is ~18%
 smaller per frame, but AVIF-with-alpha decodes about 3× slower, and a scrub
