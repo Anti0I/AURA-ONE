@@ -18,7 +18,7 @@
  *
  *     16 KB chunks -> 214 allocations, 359 MB memcpy, 181 MB retained
  *     64 KB chunks ->  54 allocations,  93 MB memcpy,  84 MB retained
- *                                             (the file is 3.87 MB)
+ *                                             (the file is 4.31 MB)
  *
  * The retention is the worse half and the less obvious one. A `subarray` is a
  * view, not a copy, so every frame handed out kept alive the entire accumulator

@@ -90,7 +90,7 @@ export default function EngineeringPage() {
 
         <H3>The premise was never about the codec</H3>
         <P>
-          Which is what the first version got wrong, at a cost of 9.95 MB.
+          Which is what the first version got wrong, at a cost of 14.94 MB.
           Everything above is true of the{" "}
           <Code>&lt;video&gt;</Code> <em>element</em>, not of video. WebCodecs
           hands you the decoder directly: <Code>VideoDecoder</Code> takes
@@ -101,9 +101,10 @@ export default function EngineeringPage() {
         <P>
           So the walkthrough plays a VP9 stream and keeps the stills as the
           fallback. What that buys is inter-frame prediction, and a slowly
-          rotating object is about as predictable as content gets. The same 240
-          frames cost under two fifths as much, which is what paid for doubling the frame
-          count in the first place.
+          rotating object is about as predictable as content gets. The same 360
+          frames cost under a third as much, and the ratio improves the denser
+          the sampling gets — which is what paid for the frame count twice
+          over, first from 120 to 240 and then from 240 to 360.
         </P>
 
         <Figures
@@ -119,13 +120,13 @@ export default function EngineeringPage() {
             ],
             [
               "Same frames as WebP stills",
-              "9.95 MB — 2.6× the video, for identical pictures",
+              "14.94 MB — 3.5× the video, for identical pictures",
             ],
             [
               "Still fallback",
               `${desktop.frameCount} / ${mobile.frameCount} frames · ${mb(desktop.totalBytes)} / ${mb(mobile.totalBytes)}`,
             ],
-            ["Render time", "145 s, software WebGL"],
+            ["Render time", "210 s, software WebGL"],
           ]}
         />
 
@@ -172,7 +173,7 @@ export default function EngineeringPage() {
 
       <Section title="Frames are discrete; scroll is not">
         <P>
-          240 frames across a 460svh section is a new frame roughly every 12px
+          360 frames across a 460svh section is a new frame roughly every 9px
           of scroll. That reads as motion at speed and still visibly steps when
           somebody scrolls a line at a time — which is exactly when they are
           looking hardest.
@@ -208,7 +209,7 @@ export default function EngineeringPage() {
           The part worth keeping is what the removal cost, because it is
           nothing. Walking the section in 40px wheel steps and counting distinct
           pictures gives 58 across 60 steps without the blend and 59 with it: a
-          40px step already crosses about 2.8 frames of a 240-frame stream, so
+          40px step already crosses about 4 frames of a 360-frame stream, so
           nearly every step lands on a different frame on its own. The
           87-against-48 figure this feature was justified by had compared the
           video source against the still fallback, which carries half the
@@ -216,12 +217,11 @@ export default function EngineeringPage() {
         </P>
         <P>
           Which leaves the step, and the honest answer is that the step is what
-          a frame sequence is. At 240 frames it is small, it only appears when
-          somebody is deliberately creeping down the page, and it is a
-          truthful picture of one moment. The blend was a smaller step and a
-          picture of no moment at all. The way to actually remove the step is
-          to spend more frames on the part that moves fastest, which costs a
-          re-render rather than a <Code>drawImage</Code> — a real decision,
+          a frame sequence is. It only appears when somebody is deliberately
+          creeping down the page, and it is a truthful picture of one moment.
+          The blend was a smaller step and a picture of no moment at all. The
+          way to actually remove the step is to spend more frames, which costs
+          a re-render rather than a <Code>drawImage</Code> — a real decision,
           taken on its own terms, and not one to be smuggled in as a filter.
         </P>
       </Section>
@@ -366,7 +366,7 @@ export default function EngineeringPage() {
           The container reader concatenated every network chunk onto a growing
           buffer and handed out views into it, so each frame kept its whole
           accumulator alive: <Numeric>181 MB</Numeric> retained and{" "}
-          <Numeric>359 MB</Numeric> copied for a 3.87 MB stream, on the worker
+          <Numeric>359 MB</Numeric> copied for a 4.31 MB stream, on the worker
           thread, during the hero.
         </P>
         <P>
@@ -458,8 +458,8 @@ export default function EngineeringPage() {
           An <Code>ImageBitmap</Code> holds uncompressed pixels, and unlike an
           ordinary object it is not reclaimed promptly: the backing memory lives
           outside the JS heap and is released only by{" "}
-          <Code>close()</Code>. Holding all 240 frames at 1440² would pin about
-          two gigabytes.
+          <Code>close()</Code>. Holding all 360 frames at 1440² would pin about
+          three gigabytes.
         </P>
         <P>
           So there is a windowed LRU with explicit eviction, and the unit tests
@@ -563,7 +563,7 @@ export default function EngineeringPage() {
         </P>
         <P>
           It is not free. The frame at the end of the push-in went from{" "}
-          <Numeric>78.5 KB</Numeric> to <Numeric>147.9 KB</Numeric>, and the
+          <Numeric>78.5 KB</Numeric> to <Numeric>148.0 KB</Numeric>, and the
           video stream from <Numeric>3.30</Numeric> to{" "}
           <Numeric>3.87 MB</Numeric>. Both were checked for something cheap to
           give back before the budgets were moved: cutting the die&rsquo;s

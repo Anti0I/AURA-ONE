@@ -33,7 +33,7 @@ That runs four steps, which can also be run individually:
 | Command | What it does | Time |
 | --- | --- | --- |
 | `npm run assets:noise` | 128² tileable noise, palette PNG, 4.1 KB | instant |
-| `npm run assets:prerender` | Three.js scene through headless Chromium → 240 PNGs + X-Ray pair + hotspot anchors | ~145 s |
+| `npm run assets:prerender` | Three.js scene through headless Chromium → 360 PNGs + X-Ray pair + hotspot anchors | ~210 s |
 | `npm run assets:encode` | sharp → WebP/AVIF fallback variants + `public/seq/manifest.json` | ~25 s |
 | `npm run assets:video` | ffmpeg → the VP9 streams the walkthrough actually plays | ~90 s |
 
@@ -82,19 +82,19 @@ with slack in it is a budget nobody respects.
 | Asset | Budget | Current |
 | --- | --- | --- |
 | First-load JS (gzip) | 180 KB | 158.9 KB |
-| Desktop video | 4.20 MB | 3.87 MB · 240 frames |
-| Mobile video | 1.50 MB | 1.34 MB · 240 frames |
+| Desktop video | 4.65 MB | 4.31 MB · 360 frames |
+| Mobile video | 1.65 MB | 1.51 MB · 360 frames |
 | Desktop still fallback | 5.40 MB | 4.97 MB · 120 frames |
-| Mobile still fallback | 1.70 MB | 1.50 MB · 60 frames |
+| Mobile still fallback | 1.70 MB | 1.51 MB · 60 frames |
 | Peak frame, desktop | 160 KB | 147.9 KB |
 | All JS chunks (gzip) | 420 KB | 362.6 KB |
-| X-Ray pair @2400px | 240 KB | 188.8 KB |
+| X-Ray pair @2400px | 240 KB | 192.5 KB |
 | Noise tile | 6 KB | 4.1 KB |
 | Audio files | 0 | 0 — everything is synthesised |
 
 ## How it is built
 
-**240 frames scrubbed against scroll** on a 2D canvas, decoded in a worker so
+**360 frames scrubbed against scroll** on a 2D canvas, decoded in a worker so
 the main thread never does. Frames decode to the size they will be *drawn*, not
 the size they were encoded.
 
@@ -102,7 +102,7 @@ the size they were encoded.
 `currentTime` is a *request* to seek that the element answers whenever it
 likes — but that is a property of the element, not of video. `VideoDecoder`
 takes chunks and returns frames in order, which buys inter-frame prediction:
-3.87 MB against 9.95 MB for the same 240 pictures as WebP stills. The still
+4.31 MB against 14.94 MB for the same 360 pictures as WebP stills. The still
 sequence stays as the fallback where WebCodecs is missing, and a test deletes
 `VideoDecoder` to prove that path still draws.
 
@@ -157,6 +157,18 @@ and a stepped blur from each section's own edges, so a boundary cross-fades
 instead of one panel sliding out from under another. The blur radius is
 quantised because `filter` re-rasterises the layer on every distinct value,
 where opacity and transform are free.
+
+**360 source frames, for 11% more bytes than 240.** The extra frames do nothing
+for a fast flick — that is limited by how many frames the chain can decode and
+draw, and the perf test counts the same 48 distinct pictures across 60 wheel
+steps either way. They are for the slow case, where nothing is dropped and the
+only limit is how far the scroll travels before the picture may change: 13px
+per picture becomes 9px. Three things paid for them. The still fallback held at
+120 and 60 frames by taking a coarser stride, because it exists for browsers
+with no decoder and the frames were bought for the decoder. CRF went 36 to 39,
+which costs 0.003 SSIM against the render masters and saves 0.94 MB. And the
+GOP stayed at 16, which at 360 frames is a *shorter* seek in scroll terms than
+it was at 240.
 
 **The internals are lit, not painted.** Every part inside the shell — board,
 neural core, driver, cell, grille — used to be a flat base colour with its
@@ -233,15 +245,15 @@ The pipeline's seam is the *output contract*, not the scene. To replace the
 procedural render with a photoreal one, drop these into `assets-src/out/` and
 run `npm run assets:encode`:
 
-- `aura_0001.png` … `aura_0240.png` — exactly 240 frames, square, **PNG RGBA
+- `aura_0001.png` … `aura_0360.png` — exactly 360 frames, square, **PNG RGBA
   with a transparent background** (`Film → Transparent`).
 - `xray-outer.png` and `xray-inner.png` — 16:9, from an **identical camera**;
   the scanner cross-fades between them and any drift shows immediately.
 
 Two constraints carry over. Render the shell in **neutral grey** — the finishes
 are canvas composites, so a baked colour means re-rendering per variant. And
-keep the phase boundaries: frames 1–72 rotate, 73–168 explode, 169–216 push
-into the core, 217–240 reassemble. Caption timing in `src/data/story.ts` is asserted
+keep the phase boundaries: frames 1–108 rotate, 109–252 explode, 253–324 push
+into the core, 325–360 reassemble. Caption timing in `src/data/story.ts` is asserted
 against them by a unit test.
 
 Hotspot anchors are re-projected by `npm run assets:prerender`; if the X-Ray

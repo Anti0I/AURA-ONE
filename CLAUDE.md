@@ -29,7 +29,7 @@ npm run audit:budget     # asset + JS budget gate; needs a build first
 npm run test:e2e         # 52 Playwright tests, desktop + mobile projects (~7 min)
 npm run test:a11y        # 10 axe / keyboard / reduced-motion tests
 npm run test:perf        # scrub continuity, own config, one worker (~30 s)
-npm run assets:all       # regenerate every asset from primitives (~4 min; needs ffmpeg)
+npm run assets:all       # regenerate every asset from primitives (~6.5 min; needs ffmpeg)
 node scripts/shoot.mjs   # screenshot the stage at five scroll positions
 ```
 
@@ -71,7 +71,7 @@ These are the ones that cause silent breakage rather than an error.
 
 5. **The shell renders neutral grey in the baked frames.** The walkthrough is
    a frame sequence, so a colour baked into the render means re-rendering all
-   240 per variant. The live configurator overrides it through
+   360 per variant. The live configurator overrides it through
    `setFinish`; the no-WebGL fallback composites it at draw time.
 
    And: **the two frame sources must stay interchangeable.** `video.worker.ts`
@@ -222,7 +222,7 @@ frame 163 with the canvas showing 149 and 27 requests pending, permanently.
 **A `subarray` pins the buffer it was cut from.** `IvfReader` used to
 concatenate each network chunk onto a growing accumulator and hand out views
 into it, so every frame kept its whole accumulator alive — 181 MB retained and
-359 MB copied for a 3.87 MB stream, on the worker thread, during the hero. It
+359 MB copied for a 4.31 MB stream, on the worker thread, during the hero. It
 now copies each frame once into a buffer of its own size. Its queue uses a head
 pointer rather than `shift()`: shifting is O(n) in queue length and the queue
 is longest exactly when the chunks are smallest.
@@ -510,7 +510,7 @@ breaks.
 **Why a video, given the whole player exists because video cannot be scrubbed.**
 That is true of the `<video>` element, not of video: `currentTime` is a
 request to seek, `VideoDecoder` is not. Inter-frame prediction then costs
-3.87 MB where the same 240 pictures cost 9.95 MB as stills.
+4.31 MB where the same 360 pictures cost 14.94 MB as stills.
 
 **Seeking.** A frame decodes only from the keyframe at or before it, so a
 backwards jump costs up to one GOP (16). Frames passed on the way are
@@ -677,7 +677,7 @@ deleting it, and it is deleted rather than parked behind a flag.
 ## Asset pipeline
 
 ```bash
-npm run assets:all   # noise → prerender (~115 s) → encode (~25 s) → video (~90 s)
+npm run assets:all   # noise → prerender (~210 s) → encode (~35 s) → video (~135 s)
 ```
 
 The encoded output is committed; the ~700 MB of master PNGs is not.
@@ -686,12 +686,12 @@ The encoded output is committed; the ~700 MB of master PNGs is not.
 **Swapping in a Blender render.** The seam is the output contract, not the
 scene. Drop into `assets-src/out/` and run `npm run assets:encode`:
 
-- `aura_0001.png` … `aura_0240.png` — exactly 240, square, PNG RGBA with a
+- `aura_0001.png` … `aura_0360.png` — exactly 360, square, PNG RGBA with a
   transparent background (`Film → Transparent`)
 - `xray-outer.png`, `xray-inner.png` — 16:9, from an **identical camera**
 
 Two constraints carry over: render the shell neutral grey, and keep the phase
-boundaries (1–72 rotate, 73–168 explode, 169–216 push into the core, 217–240
+boundaries (1–108 rotate, 109–252 explode, 253–324 push into the core, 325–360
 reassemble). `src/data/story.ts` caption windows are asserted against them by a
 unit test. If the X-Ray camera moves, regenerate `hotspots.json` with
 `npm run assets:prerender` rather than editing it.
@@ -742,13 +742,13 @@ respects.
 | --- | --- | --- |
 | First-load JS (gzip) | 180 KB | 158.9 KB |
 | All JS chunks (gzip) | 420 KB | 362.6 KB |
-| Desktop video | 4.20 MB | 3.87 MB / 240 frames |
-| Mobile video | 1.50 MB | 1.34 MB / 240 frames |
+| Desktop video | 4.65 MB | 4.31 MB / 360 frames |
+| Mobile video | 1.65 MB | 1.51 MB / 360 frames |
 | Desktop still fallback | 5.40 MB | 4.97 MB / 120 frames |
-| Mobile still fallback | 1.70 MB | 1.50 MB / 60 frames |
+| Mobile still fallback | 1.70 MB | 1.51 MB / 60 frames |
 | Peak frame, desktop | 160 KB | 147.9 KB |
 | Peak frame, mobile | 74 KB | 68.1 KB |
-| X-Ray pair @2400px | 240 KB | 188.8 KB |
+| X-Ray pair @2400px | 240 KB | 192.5 KB |
 | Noise tile | 6 KB | 4.1 KB |
 | Audio files | 0 | 0 — everything is synthesised |
 
@@ -808,7 +808,7 @@ made before the first byte.
 
 **Every asset is generated from code.** No stock photography, no bought 3D
 model, no HDRI, no texture files, no audio files. `npm run assets:all` rebuilds
-the 240-frame product render, both video streams, the PCB and die textures, the
+the 360-frame product render, both video streams, the PCB and die textures, the
 X-ray pair and the noise tile from nothing, in about four minutes.
 
 The third constraint is the one that paid off. A page that cannot buy its
@@ -818,12 +818,12 @@ clone it, run one command, and every pixel is reproducible.
 
 ### The things worth looking at
 
-**A video used as a frame sequence.** The walkthrough is 240 pre-rendered
+**A video used as a frame sequence.** The walkthrough is 360 pre-rendered
 frames scrubbed against scroll. Conventional wisdom says video cannot be
 scrubbed — and that is true of the `<video>` element, where `currentTime` is a
 *request* to seek that the decoder answers whenever it likes. It is not true of
-video. `VideoDecoder` takes chunks and returns frames in order, so the same 240
-pictures cost 3.87 MB with inter-frame prediction against 9.95 MB as WebP
+video. `VideoDecoder` takes chunks and returns frames in order, so the same 360
+pictures cost 4.31 MB with inter-frame prediction against 14.94 MB as WebP
 stills. The stills remain as the fallback, and a test deletes `VideoDecoder` to
 prove that path still draws.
 
@@ -917,7 +917,7 @@ budget.** The same 24 frames are 39 MB at 640² and 199 MB at 1440².
 
 `IvfReader` concatenated each network chunk onto a growing accumulator and
 handed out views into it — so every frame kept its whole accumulator alive. 181
-MB retained and 359 MB copied for a 3.87 MB stream, on the worker thread, during
+MB retained and 359 MB copied for a 4.31 MB stream, on the worker thread, during
 the hero. It now copies each frame once into a buffer of its own size, and its
 queue uses a head pointer rather than `shift()`, because shifting is O(n) in
 queue length and the queue is longest exactly when the chunks are smallest.
@@ -1058,6 +1058,84 @@ Profiling headless and optimising for what you find is optimising for a machine
 nobody uses. Check the renderer string before believing a number — and note it
 cuts both ways, which is why the CI budgets are looser than the figures a real
 browser reports.
+
+### Buying frames without buying megabytes
+
+The render went from 240 source frames to 360, which is the same animation
+sampled more finely — the timeline is a pure function of `t` in 0..1, so
+nothing about the motion changed.
+
+What it does and does not fix is worth being precise about. A fast flick is
+limited by how many frames the chain can decode and draw, not by how many
+exist: the perf test counts 48 distinct pictures across 60 wheel steps, and no
+number of source frames raises that. The gain is entirely in the slow case,
+where nothing is dropped and the only limit is how far the scroll has to travel
+before the picture is allowed to change. Across the stage's 360svh of travel
+that goes from 13px per picture to 9px, and under Lenis a deliberate drag moves
+a few pixels per rendered frame — so the same image sits there for two frames
+instead of four.
+
+Three things kept the cost sane, and none of them were free by accident.
+
+**The still fallback did not grow at all.** Its strides went 2 and 4 to 3 and
+6, holding it at exactly 120 and 60 frames and exactly the megabytes it was
+budgeted for. The extra frames were bought for the scrub, which is the path
+with a decoder on it; the stills exist for browsers that have no decoder to
+feed. That constraint also fixes the frame count: for the strides to stay whole
+numbers the master count has to be a multiple of 120, so between 240 and 480
+there is exactly one stop.
+
+**CRF went 36 to 39.** At 36 the desktop stream was 5.25 MB, which is a lot to
+ask of the one file every visitor downloads; at 39 the same 360 frames are
+4.31 MB. Measured, because "three steps of CRF" means nothing on its own —
+SSIM against the render masters on four frames spanning the timeline is 0.9851
+/ 0.9838 / 0.9902 / 0.9600 at 36 and 0.9823 / 0.9814 / 0.9883 / 0.9569 at 39.
+Three thousandths. The distance to the master is an order of magnitude larger
+than the distance between the settings, and it is almost entirely 4:2:0 chroma
+subsampling, which neither setting changes.
+
+**The GOP stayed at 16.** It looks like it should have scaled with the frame
+count, but a keyframe every 16 of 360 frames is a *shorter* seek in scroll
+terms than every 16 of 240 — the seek got cheaper for free. Keyframes are also
+nearly free in this content: an earlier measurement here found going from 24 to
+16 cost 20 KB out of 3.4 MB, because the picture barely changes between them.
+
+Net: 50% more pictures for 11% more bytes. The video's advantage over the same
+frames as stills went from 2.6x to 3.5x, which is the expected direction —
+denser sampling of one slow rotation is exactly what inter-frame prediction is
+good at, so the frames that were added are the cheapest in the file.
+
+**The GOP stayed at 16 for a second reason, found by failing.** The scrub perf
+test went red: `frameGapMax` 168, 216, 192 across three runs against a ceiling
+of 96. Three runs, so not the contention this metric has cried wolf about
+before.
+
+The first half of it is a units bug in the test. `frameGapMax` counts frame
+indices, and the same physical sweep now spans 638 indices where it spanned
+425 — every gap grew by half without anything changing. The rest is real and
+has a mechanism: at 360 frames a fixed GOP is crossed half again as often per
+unit of scroll, and every crossing on the reverse leg is a full rewind. On a
+software rasteriser that only manages ~60 decodes for the whole sweep, that
+shows up as one long stall on the way back up.
+
+Shortening the GOP to 12 attacks exactly that and was still rejected: 88 and
+160, still variable, for 470 KB. Meanwhile nothing the product promises moved —
+`followed` is 1.00 to 1.04 in every configuration, `landed` is exact, the mean
+gap is 4.0% of the timeline at 240 frames and 4.2% at 360, and `framesDrawn` is
+44 against 37 to 52. Same journey, same number of pictures, one worse moment on
+a machine class nobody browses on.
+
+So the threshold is a share of the playhead's journey now rather than a count
+of frames, and the comment says plainly that the discriminating power against
+the original bug sits in `followed` — 1.00 now against 0.10 then — and not in
+this number.
+
+Two tests had to stop being liabilities, both the same way. `ivf.test.ts`
+asserted the literals 240 and 240/16, so a render that changed its frame count
+silently invalidated it; it reads `sequence.json` now, written by the same
+script that produced the file it parses. And `--gop` is an argument to
+`encode-video.mjs` like `--crf`, because a constant that has to be recompiled
+to be measured does not get measured.
 
 ### Internals that looked like stickers
 
