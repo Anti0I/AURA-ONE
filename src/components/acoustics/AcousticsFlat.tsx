@@ -1,9 +1,11 @@
 "use client";
 
+import { useRef } from "react";
 import { ACOUSTICS, PRODUCT, SPECS } from "@/data/specs";
 import { Reveal } from "@/components/ui/Reveal";
 import { cn } from "@/lib/utils";
 import { useAcousticsDemo } from "./useAcousticsDemo";
+import { useStarfield } from "./useStarfield";
 
 /**
  * The acoustics section without the pin.
@@ -16,17 +18,37 @@ import { useAcousticsDemo } from "./useAcousticsDemo";
  *
  * All three demos are reachable in the tab order at once, which is the other
  * half of the argument — in the pinned frame only the beat on screen is.
+ *
+ * It gets the starfield too, drawn exactly once and subscribed to nothing. The
+ * section keeps its identity on every path, and somebody who asked for less
+ * motion gets precisely that rather than a different-looking page.
  */
 export function AcousticsFlat() {
   const { playing, meterRef, start } = useAcousticsDemo();
+  const fieldRef = useRef<HTMLCanvasElement>(null);
+  useStarfield(fieldRef, null);
   const latency = SPECS.find((s) => s.label === "Round-trip latency");
 
   return (
     <section
       id="acoustics"
       aria-labelledby="acoustics-heading"
-      className="relative border-t border-line px-gutter py-24"
+      className="relative overflow-hidden border-t border-line bg-void px-gutter py-24"
     >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(70% 40% at 50% 22%, color-mix(in oklab, var(--color-signal-dim) 30%, transparent), transparent 70%)",
+        }}
+      />
+      <canvas
+        ref={fieldRef}
+        aria-hidden
+        className="pointer-events-none absolute inset-0 h-full w-full"
+      />
+
       <header className="relative mb-14 max-w-[52ch]">
         <p className="rule-label text-signal">04 // Acoustics</p>
         <Reveal
@@ -93,6 +115,7 @@ export function AcousticsFlat() {
             <p className="rule-label">Output</p>
             <canvas
               ref={meterRef}
+              data-meter
               aria-hidden
               className="mt-4 h-28 w-full [--meter-dim:#1f1f25] [--meter-signal:#4fd1ff]"
             />

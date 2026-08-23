@@ -45,6 +45,17 @@
   --color-amber: #c88a3e;
   --color-signalwhite: #e8e8ec;
 
+  /* --- Starfield ----------------------------------------------------------
+     The acoustics section draws these into a canvas, so they are read back
+     through `getComputedStyle` rather than applied by the cascade. Named here
+     anyway: a hex literal sitting in a .ts file is a token nobody can find.
+
+     `star` is deliberately below --color-ink. The field is composited with
+     `lighter` and stars overlap, so a value that looks right on its own goes
+     to blown-out white where three of them cross. */
+  --color-star: #c6ccdd;
+  --color-star-warp: #4fd1ff;
+
   /* --- Type --------------------------------------------------------------- */
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
@@ -56,6 +67,14 @@
   --text-title: clamp(1.875rem, 4.4vw, 3.5rem);
   --text-title--line-height: 1.02;
   --text-title--letter-spacing: -0.035em;
+
+  /* The step between `lead` and `title`, added when the acoustics card needed
+     a heading that carries a frame without filling it. `title` at 56px inside a
+     panel floating over the starfield left no room for the paragraph under it
+     and no starfield to see, which is the opposite of what the section is for. */
+  --text-heading: clamp(1.5rem, 2.8vw, 2.25rem);
+  --text-heading--line-height: 1.06;
+  --text-heading--letter-spacing: -0.025em;
 
   --text-lead: clamp(1.0625rem, 1.6vw, 1.375rem);
   --text-lead--line-height: 1.5;

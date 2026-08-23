@@ -25,8 +25,15 @@ import { useAppStore } from "@/store/useAppStore";
  * that is *not* layout lives here instead of being written twice.
  */
 
-/** Bars in the meter. Enough to read as a spectrum, few enough to stay calm. */
-const BARS = 44;
+/**
+ * Bars in the meter.
+ *
+ * A parameter rather than a constant because the two layouts give the meter
+ * very different shapes: a 22rem panel in the flat list, and a strip across the
+ * whole viewport in the pinned frame. The 44 bars that read as a spectrum in
+ * the panel read as a picket fence at full width.
+ */
+const DEFAULT_BARS = 44;
 
 /**
  * Reference lines across the meter, as fractions of full scale.
@@ -39,7 +46,7 @@ const BARS = 44;
  */
 const GRID = [0.25, 0.5, 0.75];
 
-export function useAcousticsDemo() {
+export function useAcousticsDemo(bars = DEFAULT_BARS) {
   const [playing, setPlaying] = useState<DemoId | null>(null);
   const handle = useRef<DemoHandle | null>(null);
   const timer = useRef(0);
@@ -127,8 +134,8 @@ export function useAcousticsDemo() {
     const dim = styles.getPropertyValue("--meter-dim").trim();
 
     const { width, height } = canvas;
-    const gap = Math.max(1, Math.round(width / (BARS * 9)));
-    const barWidth = (width - gap * (BARS - 1)) / BARS;
+    const gap = Math.max(1, Math.round(width / (bars * 9)));
+    const barWidth = (width - gap * (bars - 1)) / bars;
     const floor = Math.max(2 * dpr, height * 0.03);
 
     const paint = (levelAt: (i: number) => number) => {
@@ -139,7 +146,7 @@ export function useAcousticsDemo() {
         ctx.fillRect(0, Math.round(height * (1 - line)), width, 1);
       }
 
-      for (let i = 0; i < BARS; i++) {
+      for (let i = 0; i < bars; i++) {
         const level = levelAt(i);
         const barHeight = Math.max(floor, level * height);
         ctx.fillStyle = level > 0.04 ? signal : dim;
@@ -174,10 +181,10 @@ export function useAcousticsDemo() {
           // Squared bin mapping, so the bass is not crushed into the first two
           // bars. A linear spectrum of a musical signal is a wall on the left
           // and nothing anywhere else.
-          const from = Math.floor(Math.pow(i / BARS, 2) * (count - 1));
+          const from = Math.floor(Math.pow(i / bars, 2) * (count - 1));
           const to = Math.max(
             from + 1,
-            Math.floor(Math.pow((i + 1) / BARS, 2) * (count - 1)),
+            Math.floor(Math.pow((i + 1) / bars, 2) * (count - 1)),
           );
           let peak = 0;
           for (let b = from; b < to; b++) peak = Math.max(peak, bins[b] ?? 0);
@@ -186,7 +193,7 @@ export function useAcousticsDemo() {
       },
       Priority.RENDER,
     );
-  }, [playing]);
+  }, [bars, playing]);
 
   return { playing, start, stop, meterRef };
 }

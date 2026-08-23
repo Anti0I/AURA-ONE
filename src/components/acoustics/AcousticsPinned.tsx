@@ -1,149 +1,146 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ACOUSTICS, PRODUCT, SPECS } from "@/data/specs";
+import { ACOUSTICS, PRODUCT } from "@/data/specs";
 import { useSectionProgress } from "@/lib/scroll/useSectionProgress";
-import { clamp, cn, easeInOutQuart } from "@/lib/utils";
+import { cn, easeInOutQuart } from "@/lib/utils";
 import { ProgressRail } from "@/components/ui/ProgressRail";
 import { Reveal } from "@/components/ui/Reveal";
 import { useAcousticsDemo } from "./useAcousticsDemo";
+import { useStarfield, type WarpState } from "./useStarfield";
+import { activeStation, railTargets, stationPhase } from "./stations";
 
 /**
- * The acoustics section as a pinned scrollytelling frame.
+ * The acoustics section as a flight between three stations.
  *
- * The same mechanism the walkthrough uses, applied a second time: a very tall
- * section, one `position: sticky` child, and progress read from a single
- * `getBoundingClientRect` per frame during the INPUT phase. No ScrollTrigger,
- * no pin-spacer, no plugin — the browser composites a sticky element for free.
+ * The same mechanism the walkthrough uses — a very tall section, one
+ * `position: sticky` child, progress from a single `getBoundingClientRect` per
+ * frame during INPUT. No ScrollTrigger, no pin-spacer, no plugin.
  *
- * The frame holds still while three beats page through it. The header, the
- * meter and the latency figure stay put; the left column is replaced. Nothing
- * in here goes through React state per frame (hard rule 1) — beat positions are
- * written straight to `style` on refs. The one piece of state is which beat is
- * on screen, which changes three times in a whole visit and drives the rail's
- * `aria-current`, the signal chain, and stopping a demo the scroll has left.
+ * What changed, and why: the previous version cross-wiped one beat into the
+ * next, which meant a stretch of every transition where half of one paragraph
+ * sat above half of the next and neither could be read. Scrolling slowly landed
+ * in it every time. The windows are now disjoint (`stations.ts`), so between
+ * two beats there is genuinely nothing on screen — and that emptiness is the
+ * point rather than the cost. The starfield behind runs at its fastest exactly
+ * then, so the gap reads as travel.
+ *
+ * One number does three jobs. `presence` — how much beat text is on screen —
+ * drives the card, dims the field under copy that is being read, and releases
+ * the field to full speed once the copy has gone. There is no second timeline
+ * to keep in sync with the first, because there is only one.
+ *
+ * Nothing here goes through React state per frame (hard rule 1). The one piece
+ * of state is which beat the rail should mark, which changes twice in a visit.
  */
 
-/**
- * Fraction of the section each beat owns, and how much of that is spent moving.
- *
- * `LEAD_IN` is derived rather than chosen: it is exactly one wipe long, so the
- * first beat starts fully below its window at the moment the section pins and
- * arrives as the run-up finishes. Picked as a round number instead, the first
- * beat is already half on screen before anyone has scrolled.
- *
- * The last beat has no exit. It holds until the section releases — the scroll
- * carries it away, which is the "unlock" and needs no animation to say so.
- * Wiping it out would leave the frame empty for the run-out.
- */
-const SPAN = 0.28;
-const WIPE = 0.34;
-const LEAD_IN = WIPE * SPAN;
+/** Scale the card arrives from, and the scale it departs through. */
+const ENTER_SCALE = 0.74;
+const EXIT_SCALE = 1.24;
+
+/** Vertical travel of the card itself, in px. Small — the depth carries it. */
+const CARD_RISE = 30;
+const CARD_PASS = 26;
 
 /**
- * Delay between the blocks of one beat, as a fraction of its own travel.
+ * Delay between the blocks of one beat, as a fraction of the beat's own travel.
  *
- * Blocks, not lines. Wiping line by line means measuring line boxes and
- * re-measuring them on every width change, which is a class of bug rather than
- * a detail — the same reason `Reveal` splits on words. Four blocks leaving in
- * sequence reads the same way.
+ * Entirely contained inside this beat's window, which is what the old wipe got
+ * wrong: there, a staggered block could still be leaving after the next beat
+ * had begun to arrive. Here the stagger cannot reach past its own station.
  */
-const STAGGER = 0.14;
+const STAGGER = 0.13;
 const BLOCKS = 4;
 const USABLE = 1 - STAGGER * (BLOCKS - 1);
+const BLOCK_RISE = 22;
 
-/**
- * How far a block travels, as a percentage of its own height.
- *
- * Which is why every mover is stretched to fill its window (`h-full`) and every
- * window has a fixed height. A CSS percentage translation is relative to the
- * *element*, not to whatever is clipping it — so a one-line title inside a
- * two-line window translated by 115% of one line is still sitting in the
- * window, in full view, having "left". That is what the first version did, and
- * it looked like two titles stacked rather than one replacing another.
- */
-const TRAVEL = 115;
+const stagger = (t: number, j: number) =>
+  easeInOutQuart(Math.min(Math.max((t - STAGGER * j) / USABLE, 0), 1));
 
 interface BeatRefs {
   root: HTMLElement | null;
+  card: HTMLElement | null;
   blocks: (HTMLElement | null)[];
 }
 
 export function AcousticsPinned() {
   const sectionRef = useRef<HTMLElement>(null);
+  const fieldRef = useRef<HTMLCanvasElement>(null);
   const railRef = useRef<HTMLDivElement>(null);
   const beats = useRef<BeatRefs[]>(
-    ACOUSTICS.map(() => ({ root: null, blocks: [] })),
+    ACOUSTICS.map(() => ({ root: null, card: null, blocks: [] })),
   );
 
-  const { playing, start, stop, meterRef } = useAcousticsDemo();
+  // Written during INPUT, read by the starfield during RENDER. The field needs
+  // its own subscription because `useSectionProgress` only reports when the
+  // progress changes, and the field has to keep flying while the page is still.
+  const warp = useRef<WarpState>({ progress: 0, presence: 0 });
+
+  // 96 bars, not the panel default of 44: this meter is a strip across the
+  // whole viewport now, and 44 of them at that width is a picket fence.
+  const { playing, start, stop, meterRef } = useAcousticsDemo(96);
+  useStarfield(fieldRef, warp);
+
   const [active, setActive] = useState(0);
   const lastActive = useRef(0);
 
-  const onProgress = useCallback(
-    (p: number) => {
-      for (let i = 0; i < ACOUSTICS.length; i++) {
-        const beat = beats.current[i];
-        if (!beat?.root) continue;
+  const onProgress = useCallback((p: number) => {
+    const count = ACOUSTICS.length;
+    let presence = 0;
 
-        // 0 at the start of this beat's window, 1 at the end of it.
-        const phase = (p - LEAD_IN) / SPAN - i;
-        const enterRaw = clamp((phase + WIPE) / WIPE, 0, 1);
-        // The last beat never leaves; see the note on LEAD_IN.
-        const exitRaw =
-          i === ACOUSTICS.length - 1
-            ? 0
-            : clamp((phase - (1 - WIPE)) / WIPE, 0, 1);
+    for (let i = 0; i < count; i++) {
+      const beat = beats.current[i];
+      if (!beat?.root) continue;
 
-        const gone = enterRaw <= 0 || exitRaw >= 1;
-        beat.root.style.visibility = gone ? "hidden" : "visible";
-        // `will-change` is a promise to hold a compositor layer, and three
-        // full-height beats holding one each for the rest of the visit is the
-        // mistake the hero copy already taught us once.
-        beat.root.style.willChange =
-          gone || (enterRaw >= 1 && exitRaw <= 0)
-            ? ""
-            : "opacity, transform";
-        if (gone) continue;
+      const phase = stationPhase(p, i, count);
+      if (phase.presence > presence) presence = phase.presence;
 
-        for (let j = 0; j < beat.blocks.length; j++) {
-          const el = beat.blocks[j];
-          if (!el) continue;
-          const eIn = easeInOutQuart(
-            clamp((enterRaw - STAGGER * j) / USABLE, 0, 1),
-          );
-          const eOut = easeInOutQuart(
-            clamp((exitRaw - STAGGER * j) / USABLE, 0, 1),
-          );
-          const y = (1 - eIn) * TRAVEL - eOut * TRAVEL;
-          el.style.transform = `translate3d(0, ${y.toFixed(2)}%, 0)`;
-          // Only the controls row carries opacity. The text blocks sit inside
-          // clipping windows and are simply *gone* when translated out, which
-          // is a harder edge than a fade and the reason for the windows.
-          if (el.dataset.fade === "1") {
-            el.style.opacity = String(eIn * (1 - eOut));
-          }
-        }
+      beat.root.style.visibility = phase.gone ? "hidden" : "visible";
+      // `will-change` is a promise to hold a compositor layer, not a hint that
+      // can be left on. Three full-height beats each holding one for the rest
+      // of the visit is a bug the hero copy already taught us once.
+      beat.root.style.willChange =
+        phase.gone || phase.presence >= 1 ? "" : "opacity, transform";
+      if (phase.gone) continue;
+
+      const eIn = easeInOutQuart(phase.enter);
+      const eOut = easeInOutQuart(phase.exit);
+
+      if (beat.card) {
+        // The card travels the same z axis the stars do: it arrives out of the
+        // vanishing point and departs *through* the camera rather than fading.
+        // That is the whole reason the copy and the background read as one
+        // thing instead of two animations sharing a screen.
+        const scale =
+          ENTER_SCALE + (1 - ENTER_SCALE) * eIn + (EXIT_SCALE - 1) * eOut;
+        const y = (1 - eIn) * CARD_RISE - eOut * CARD_PASS;
+        beat.card.style.transform = `translate3d(0, ${y.toFixed(2)}px, 0) scale(${scale.toFixed(4)})`;
+        beat.card.style.opacity = (eIn * (1 - eOut)).toFixed(3);
       }
 
-      const rail = railRef.current;
-      if (rail) rail.style.setProperty("--rail-progress", p.toFixed(4));
-
-      // Switched at the middle of the wipe rather than at the window boundary,
-      // so the rail changes over while the two beats are crossing instead of
-      // after the new one has landed.
-      const next = clamp(
-        Math.floor((p - LEAD_IN) / SPAN + WIPE / 2),
-        0,
-        ACOUSTICS.length - 1,
-      );
-      if (next !== lastActive.current) {
-        lastActive.current = next;
-        setActive(next);
+      for (let j = 0; j < beat.blocks.length; j++) {
+        const el = beat.blocks[j];
+        if (!el) continue;
+        const bIn = stagger(phase.enter, j);
+        const bOut = stagger(phase.exit, j);
+        const y = (1 - bIn) * BLOCK_RISE - bOut * BLOCK_RISE;
+        el.style.transform = `translate3d(0, ${y.toFixed(2)}px, 0)`;
+        el.style.opacity = (bIn * (1 - bOut)).toFixed(3);
       }
-    },
-    [],
-  );
+    }
+
+    warp.current.progress = p;
+    warp.current.presence = presence;
+
+    const rail = railRef.current;
+    if (rail) rail.style.setProperty("--rail-progress", p.toFixed(4));
+
+    const next = activeStation(p, count);
+    if (next !== lastActive.current) {
+      lastActive.current = next;
+      setActive(next);
+    }
+  }, []);
 
   useSectionProgress(sectionRef, onProgress);
 
@@ -152,103 +149,130 @@ export function AcousticsPinned() {
   // A demo belongs to the beat that offered it. Carrying on into the next one
   // is the same mistake as a loop with no visibility gate, except audible.
   //
-  // In an effect, not during render: `stop` sets state, and setting state
-  // while rendering is a different component's problem to debug later.
+  // In an effect, not during render: `stop` sets state.
   useEffect(() => {
     if (playing !== null && playing !== activeRow.id) stop();
   }, [activeRow.id, playing, stop]);
-
-  const latency = SPECS.find((s) => s.label === "Round-trip latency");
 
   return (
     <section
       ref={sectionRef}
       id="acoustics"
       aria-labelledby="acoustics-heading"
-      className="relative border-t border-line h-[380svh]"
+      className="relative h-[380svh] border-t border-line"
     >
-      <div className="sticky top-0 h-dvh overflow-hidden">
-        <div className="mx-auto flex h-full max-w-[100rem] flex-col px-gutter pb-28 pt-24">
-          <header className="max-w-[46ch] shrink-0">
+      <div className="sticky top-0 h-dvh overflow-hidden bg-void">
+        {/* The galaxy behind the stars. A static CSS gradient rather than
+            anything drawn, so it costs one paint at mount and nothing after —
+            there is no reason for the loop to redraw a shape that never
+            changes. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(60% 50% at 50% 46%, color-mix(in oklab, var(--color-signal-dim) 34%, transparent), transparent 70%)",
+          }}
+        />
+        <canvas
+          ref={fieldRef}
+          aria-hidden
+          className="pointer-events-none absolute inset-0 h-full w-full"
+        />
+        {/* The only two places text sits directly on the field are the top
+            strip and the readout at the bottom; the beats have their own panel.
+            So the field is pushed back exactly there and left alone in the
+            middle, which is also where it is most worth looking at. Another
+            static gradient — the alternative was dimming the whole field, and
+            that costs the effect everywhere to fix it in two bands. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(to bottom, var(--color-void) 0%, color-mix(in oklab, var(--color-void) 30%, transparent) 22%, transparent 42%, transparent 58%, color-mix(in oklab, var(--color-void) 55%, transparent) 78%, var(--color-void) 100%)",
+          }}
+        />
+
+        <div className="relative flex h-full flex-col px-gutter pb-24 pt-12">
+          {/* Deliberately quiet, and it stays put for the whole lock. The
+              section label is not the headline here — the beat flying through
+              the middle is, and two things at display scale would fight. */}
+          <header className="mx-auto w-full max-w-[100rem] shrink-0">
             <p className="rule-label text-signal">04 // Acoustics</p>
             <Reveal
               as="h2"
               id="acoustics-heading"
-              className="mt-4 text-title font-medium text-ink"
+              className="mt-3 text-lead font-medium text-ink"
             >
               {`What ${PRODUCT.name} sounds like.`}
             </Reveal>
           </header>
 
-          <div className="grid min-h-0 flex-1 items-stretch gap-10 pt-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,28rem)]">
-            {/* Left: the beats, stacked and paged. */}
-            <div className="relative min-h-0">
-              {ACOUSTICS.map((row, i) => (
-                <article
-                  key={row.id}
+          {/* The stage. Every beat occupies all of it and is centred in it, so
+              they arrive in the same place rather than at their own heights. */}
+          <div className="relative min-h-0 flex-1">
+            {ACOUSTICS.map((row, i) => (
+              <article
+                key={row.id}
+                ref={(el) => {
+                  beats.current[i]!.root = el;
+                }}
+                style={{ visibility: "hidden" }}
+                className="absolute inset-0 flex items-center justify-center"
+              >
+                <div
                   ref={(el) => {
-                    beats.current[i]!.root = el;
+                    beats.current[i]!.card = el;
                   }}
-                  style={{ visibility: "hidden" }}
-                  // Aligned to the top, not centred, and the title window has a
-                  // fixed two-line height. Both are about what happens *during*
-                  // a wipe rather than at rest: centred beats of unequal height
-                  // put their titles at different heights, so the outgoing and
-                  // incoming ones cross at an offset and the whole thing reads
-                  // as two paragraphs colliding instead of one slot changing
-                  // its contents. Every block now occupies the same slot in
-                  // every beat, which is what makes the wipe legible.
-                  className="absolute inset-x-0 top-[12%] flex flex-col"
+                  // No `backdrop-filter`. A backdrop filter makes the
+                  // compositor read what is behind the element every frame, and
+                  // what is behind this one is an animating canvas — the same
+                  // reason `mix-blend-mode` is banned over the stage. A flat
+                  // translucent fill is one cheap composite and reads the same.
+                  className="w-full max-w-[62ch] rounded-tile border border-line-strong bg-void/85 p-7 sm:p-9"
                 >
-                  {/* Each window clips its own child. The font size lives on
-                      the window so the `em` padding that keeps descenders off
-                      the clip edge resolves against the right scale. */}
-                  <p className="rule-label h-[1.7em] overflow-hidden">
-                    <span
-                      ref={(el) => {
-                        beats.current[i]!.blocks[0] = el;
-                      }}
-                      className="block h-full"
-                    >
-                      {row.eyebrow}
-                    </span>
+                  <p
+                    ref={(el) => {
+                      beats.current[i]!.blocks[0] = el;
+                    }}
+                    className="rule-label text-signal"
+                  >
+                    {row.eyebrow}
                   </p>
-                  {/* Two lines tall, with slack for the descenders on the
-                      second one — the display scale runs a 1.02 line-height, so
-                      glyphs overflow their own line box and a window sized to
-                      the text exactly would shave them. */}
-                  <h3 className="mt-5 h-[2.34em] max-w-[15ch] overflow-hidden text-title font-medium text-ink">
-                    <span
-                      ref={(el) => {
-                        beats.current[i]!.blocks[1] = el;
-                      }}
-                      className="block h-full"
-                    >
-                      {row.title}
-                    </span>
+                  {/* `text-heading`, not `text-title`. Measured, not chosen:
+                      at title scale this card ran 568px tall in a 360px stage
+                      on a 720p laptop, so the paragraph under it was clipped
+                      and the starfield the section is built around had nowhere
+                      to show. */}
+                  <h3
+                    ref={(el) => {
+                      beats.current[i]!.blocks[1] = el;
+                    }}
+                    className="mt-4 max-w-[18ch] text-heading font-medium text-ink"
+                  >
+                    {row.title}
                   </h3>
-                  <p className="mt-3 h-[6.9em] max-w-[46ch] overflow-hidden text-lead leading-relaxed text-ink-dim">
-                    <span
-                      ref={(el) => {
-                        beats.current[i]!.blocks[2] = el;
-                      }}
-                      className="block h-full"
-                    >
-                      {row.body}
-                    </span>
+                  <p
+                    ref={(el) => {
+                      beats.current[i]!.blocks[2] = el;
+                    }}
+                    className="mt-4 text-lead leading-relaxed text-ink-dim"
+                  >
+                    {row.body}
                   </p>
 
-                  {/* Deliberately not inside a clipping window: it holds the
-                      focus ring, and a clipped focus ring is the one piece of
-                      feedback a keyboard user has. Moves on transform and
-                      opacity instead. */}
                   <div
                     ref={(el) => {
                       beats.current[i]!.blocks[3] = el;
                     }}
-                    data-fade="1"
-                    className="mt-10 flex flex-wrap items-center gap-5"
+                    className="mt-7 flex flex-wrap items-center gap-5"
                   >
+                    {/* Nothing clips this. The old layout ran every block
+                        through an `overflow: hidden` window, which took the
+                        focus ring with it — the only feedback a keyboard user
+                        has about where they are. With one beat moving at a
+                        time the windows are not needed at all. */}
                     <button
                       type="button"
                       onClick={() => start(row.id)}
@@ -267,63 +291,73 @@ export function AcousticsPinned() {
                       {row.detail}
                     </p>
                   </div>
-                </article>
-              ))}
-            </div>
+                </div>
+              </article>
+            ))}
+          </div>
 
-            {/* Right: stays put for the whole lock. */}
-            <aside className="flex min-h-0 flex-col justify-center gap-5">
-              <div className="rounded-tile border border-line bg-raised/60 p-6">
+          {/* The readout. Stays for the whole lock, across the full width —
+              which is what lets the field be a background rather than a strip
+              beside a panel, and keeps the meter to a single canvas and a
+              single ref where a meter per card would have needed three.
+
+              The card carries the argument; this carries the evidence. The
+              signal chain lives here rather than in the card for that reason
+              and for a duller one: in the card it added a hundred pixels to
+              something that already did not fit a 720p laptop. */}
+          <div className="mx-auto grid w-full max-w-[100rem] shrink-0 gap-x-10 gap-y-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-end">
+            <div>
+              <div className="flex items-baseline justify-between gap-6">
                 <p className="rule-label">Output</p>
-                <canvas
-                  ref={meterRef}
-                  aria-hidden
-                  className="mt-5 h-40 w-full [--meter-dim:#1f1f25] [--meter-signal:#4fd1ff] xl:h-52"
-                />
-                {/* The axis the bars are plotted against. Without it the panel
-                    is a rectangle with a line at the bottom, and a scale is the
-                    difference between an instrument and an empty box. */}
-                <p
-                  aria-hidden
-                  className="mt-2 flex justify-between text-label uppercase tracking-[0.14em] text-ink-faint"
-                  data-numeric
-                >
-                  <span>38 Hz</span>
-                  <span>1 kHz</span>
-                  <span>16 kHz</span>
-                </p>
-                <p role="status" className="mt-5 text-base text-ink-dim">
+                {/* The meter is decoration; this is the same fact in text, and
+                    it is what a screen reader gets. */}
+                <p role="status" className="text-base text-ink-dim">
                   {playing
                     ? `Playing: ${ACOUSTICS.find((r) => r.id === playing)?.title}`
                     : "Nothing playing."}
                 </p>
               </div>
+              <canvas
+                ref={meterRef}
+                data-meter
+                aria-hidden
+                className="mt-2 h-16 w-full [--meter-dim:#1f1f25] [--meter-signal:#4fd1ff]"
+              />
+              <p
+                aria-hidden
+                className="rule-label mt-1 flex justify-between"
+                data-numeric
+              >
+                <span>38 Hz</span>
+                <span>1 kHz</span>
+                <span>16 kHz</span>
+              </p>
+            </div>
 
-              <div className="rounded-tile border border-line bg-raised/60 p-6">
-                <div className="flex items-baseline justify-between gap-4">
-                  <p className="rule-label">Signal chain</p>
-                  {latency ? (
-                    <p className="rule-label text-ink-dim" data-numeric>
-                      {latency.value}
-                      {latency.unit} round-trip
-                    </p>
-                  ) : null}
-                </div>
-                <ol className="mt-4 grid gap-2" role="list">
-                  {activeRow.chain.map((node) => (
-                    <li
-                      key={node}
-                      className="flex gap-3 text-base leading-relaxed text-ink-dim"
-                    >
+            <div>
+              <p className="rule-label">Signal chain</p>
+              {/* Follows the beat on screen. Inline rather than stacked: it is
+                  a chain, it reads as one, and the frame has no vertical space
+                  to spare for three more lines. */}
+              <ol
+                className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1"
+                role="list"
+              >
+                {activeRow.chain.map((node, at) => (
+                  <li
+                    key={node}
+                    className="flex items-center gap-2 text-base text-ink-dim"
+                  >
+                    {at > 0 ? (
                       <span aria-hidden className="text-signal-dim">
                         →
                       </span>
-                      {node}
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            </aside>
+                    ) : null}
+                    {node}
+                  </li>
+                ))}
+              </ol>
+            </div>
           </div>
         </div>
 
@@ -332,13 +366,7 @@ export function AcousticsPinned() {
           steps={ACOUSTICS}
           active={active}
           sectionId="acoustics"
-          // The middle of each beat's own window, so a click lands on a settled
-          // beat rather than in the middle of a wipe.
-          targets={[
-            LEAD_IN + 0.5 * SPAN,
-            LEAD_IN + 1.5 * SPAN,
-            LEAD_IN + 2.5 * SPAN,
-          ]}
+          targets={railTargets(ACOUSTICS.length)}
           label="Acoustics demonstrations"
         />
       </div>
