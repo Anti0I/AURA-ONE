@@ -240,19 +240,42 @@ export default function EngineeringPage() {
           The acoustics section is the argument for having done it that way. It
           needed exactly the same behaviour — lock the frame, page three panels
           through it, let go at the end — and it cost a second call to the same
-          hook. The panels wipe through masking windows, which is transform
-          inside <Code>overflow: hidden</Code> and therefore free on the
-          compositor.
+          hook.
         </P>
         <P>
-          Two things about that wipe were not obvious. A percentage translation
-          is relative to the element being moved, not to whatever is clipping
-          it, so a one-line title in a two-line window translated by 115% of one
-          line is still sitting in the window in full view, having &ldquo;left&rdquo;.
-          And beats centred independently put their titles at different heights,
-          so the outgoing and incoming ones crossed at an offset and read as two
-          paragraphs colliding rather than one slot changing its contents. Both
-          are fixed by making the mover and its window agree on a height.
+          The first version of that paging cross-wiped one beat into the next,
+          and it was wrong in a way that only shows up at reading speed. The exit
+          of one beat and the entrance of the next ran over the same stretch of
+          scroll — about 36svh, a dozen wheel notches — so anybody scrolling
+          slowly stopped somewhere with half of one paragraph above half of
+          another. Both were on screen. Neither could be read.
+        </P>
+        <P>
+          The fix is not a shorter transition, it is a gap. Each beat now owns a
+          window with empty scroll either side, so two of them cannot be present
+          at once no matter where you stop. That leaves a stretch of the section
+          with nothing on it, which in the old design would have read as a page
+          that had broken — and is the reason the section is now a flight
+          between three stations rather than a stack of three panels. The
+          starfield behind runs at its fastest exactly where the copy is absent.
+        </P>
+        <P>
+          One number does all of it. <Code>presence</Code> — how much beat text
+          is on screen — scales the card, dims the field under anything being
+          read, and gives the field its speed back the moment the reading is
+          over. There is no second timeline to keep in step with the first,
+          which is why the fastest part of the flight is reliably the part with
+          nothing to look at but the flight.
+        </P>
+        <P>
+          The card travels the same axis the stars do: it arrives out of the
+          vanishing point and leaves through the camera rather than fading out.
+          Scale and opacity only, so the whole thing is compositor work. The
+          field costs nothing measurable beside it — 900 stars stroke as eight
+          paths, because depth is quantised into four bands and brightness and
+          line width are per-stroke state. Measured in a software compositor,
+          mid-flight and parked at the footer with the field switched off are
+          the same 16.59 ms.
         </P>
         <P>
           It is not pinned on a phone, and not for anyone who has asked for

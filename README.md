@@ -45,7 +45,7 @@ That runs four steps, which can also be run individually:
 npm run verify
 ```
 
-Typecheck, lint and 25 unit tests. The full pipeline, as CI runs it:
+Typecheck, lint and 31 unit tests. The full pipeline, as CI runs it:
 
 ```bash
 npm run build && npm run audit:budget && npm run test:e2e && npm run test:a11y && npm run test:perf
@@ -123,9 +123,18 @@ without it against 59 with, because a 40px step already crosses ~2.8 frames.
 
 **Two pinned sections, no scroll plugin.** The walkthrough and the acoustics
 demos are both a tall section with one `position: sticky` child, driven by a
-single `getBoundingClientRect` per frame. The acoustics one pages through three
-beats on a masked wipe and releases at the end; on a phone, and under reduced
-motion, it is a flat list instead.
+single `getBoundingClientRect` per frame. The acoustics one flies between three
+stations and releases at the end; on a phone, and under reduced motion, it is a
+flat list instead.
+
+**Beats that cannot overlap.** The acoustics section used to cross-wipe one beat
+into the next, which put half of one paragraph above half of the next for a
+dozen wheel notches of every transition. Each beat now owns a disjoint window
+with empty scroll either side, so stopping anywhere shows one beat or none — and
+the empty stretch is where the starfield behind runs at full speed. The card
+arrives out of the vanishing point and leaves through the camera on the same z
+axis the stars travel. 900 stars stroke as eight paths, and cost nothing
+measurable: 16.59 ms a frame mid-flight against 16.59 ms with the field off.
 
 **Sections dissolve into each other.** `SectionHandoff` drives opacity, scale
 and a stepped blur from each section's own edges, so a boundary cross-fades

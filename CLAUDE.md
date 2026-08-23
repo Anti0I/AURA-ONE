@@ -23,10 +23,10 @@ file is the working knowledge that is expensive to re-derive.
 
 ```bash
 npm run dev              # Next 16 dev server, Turbopack
-npm run verify           # typecheck + lint + 25 unit tests — run before every commit
+npm run verify           # typecheck + lint + 31 unit tests — run before every commit
 npm run build            # production build
 npm run audit:budget     # asset + JS budget gate; needs a build first
-npm run test:e2e         # 46 Playwright tests, desktop + mobile projects (~8 min)
+npm run test:e2e         # 52 Playwright tests, desktop + mobile projects (~7 min)
 npm run test:a11y        # 12 axe / keyboard / reduced-motion tests
 npm run test:perf        # scrub continuity, own config, one worker (~30 s)
 npm run assets:all       # regenerate every asset from primitives (~4 min; needs ffmpeg)
@@ -239,22 +239,29 @@ scroll container and is the safe way to clip around something pinned.
 Both pinned sections put `overflow-hidden` on the sticky element *itself*, which
 is fine — it is ancestors that matter.
 
-**A percentage translation is relative to the element, not to what clips it.**
-The masked wipe in the acoustics section moves each block by 115% — of its own
-height, which for a one-line title inside a two-line window leaves it sitting in
-the window, in full view, having "left". Every mover is stretched to fill its
-window (`h-full`) and every window has a fixed height, so the two agree.
+**Two beats of the same story must never share a window.** The acoustics
+section used to run beat N's exit and beat N+1's entrance over exactly the same
+stretch of scroll. That is about 36svh — a dozen wheel notches — in which half
+of one paragraph sits above half of the next and neither can be read, and
+scrolling slowly lands in it every single time. It was reported as "the text
+goes weird", which is what a reader has to call it.
 
-**Paged beats have to align slot for slot.** Centred independently, beats of
-unequal height put their titles at different heights, and the outgoing and
-incoming ones cross at an offset — which reads as two paragraphs colliding
-rather than one slot changing its contents. Align from a fixed top and give the
-variable-height blocks a fixed height.
+Note that this is the **opposite** of the rule two entries below about section
+hand-off, and the difference is what is dissolving. Two backgrounds crossing
+read as one place becoming another. Two paragraphs crossing read as a fault.
+So `stations.ts` makes the windows disjoint and leaves a deliberate stretch with
+nothing on screen at all — filled, in that section, by the starfield running at
+its fastest. If a gap like that has nothing to do, the transition is wrong
+rather than the gap.
 
-**Never put a focusable control inside an `overflow: hidden` window.** The clip
-takes the focus ring with it, and the focus ring is the only feedback a keyboard
-user has about where they are. In the acoustics beats the Play button sits
-outside the masks and moves on transform and opacity instead.
+Three traps that used to live here went with the wipe, because with one beat
+moving at a time there are no clipping windows left to fall into: percentage
+translations resolving against the mover rather than the clip, unequal beats
+crossing at an offset because each was centred independently, and focus rings
+being eaten by an `overflow: hidden` mask. The last of those is still a rule
+worth keeping in mind anywhere else — **a clipped focus ring is the only
+feedback a keyboard user has about where they are** — it just no longer has a
+call site here.
 
 **A blur radius has to be quantised.** `opacity` and `transform` are compositor
 properties and cost nothing per frame; `filter: blur()` re-rasterises the layer
@@ -369,7 +376,7 @@ scripts/
   shoot.mjs                 screenshots at named scroll positions
 
 src/lib/
-  canvas/                   FrameSequencePlayer, BitmapLRU, tint, Particles
+  canvas/                   FrameSequencePlayer, BitmapLRU, tint, Particles, Starfield
                             decoder.worker (WebP stills) + video.worker (WebCodecs)
                             ivf.ts (container reader), matte.ts (WebGL2 recombine)
   scroll/                   rafBus (the one loop), scrollEngine (Lenis), useSectionProgress
@@ -380,8 +387,9 @@ src/lib/
 
 src/components/             one directory per section, plus ui/, palette/, devhud/
   configurator/             ConfiguratorLive (WebGL) + ConfiguratorFallback (stills)
-  acoustics/                AcousticsPinned (scrollytelling) + AcousticsFlat
+  acoustics/                AcousticsPinned (stations + starfield) + AcousticsFlat
                             + useAcousticsDemo (playback and meter, shared)
+                            + stations (beat windows, pure) + useStarfield
   ui/ProgressRail           phase rail, shared by both pinned sections
   ui/Reveal                 word-by-word text entrance, on the frame bus
   ui/SectionHandoff         scroll-driven cross-dissolve between sections
@@ -485,13 +493,40 @@ bus, so it cannot twitch at the ambient bed. It draws its resting state once
 and only subscribes to the frame loop while something is playing.
 
 **The second pinned section.** On a wide viewport the acoustics section is
-380svh with a sticky frame, paging through its three beats on a masked wipe —
-the same sticky-plus-one-rect mechanism as the walkthrough, which is the whole
-argument for not having taken a scroll plugin. On a narrow viewport, and under
-reduced motion, it is an ordinary stacked list instead: `AcousticsPinned` and
-`AcousticsFlat` are separate components because they are genuinely different
-documents — one keeps a single beat in the tab order, the other holds all three
-— and `useAcousticsDemo` owns everything that is not layout.
+380svh with a sticky frame — the same sticky-plus-one-rect mechanism as the
+walkthrough, which is the whole argument for not having taken a scroll plugin.
+On a narrow viewport, and under reduced motion, it is an ordinary stacked list
+instead: `AcousticsPinned` and `AcousticsFlat` are separate components because
+they are genuinely different documents — one keeps a single beat in the tab
+order, the other holds all three — and `useAcousticsDemo` owns everything that
+is not layout.
+
+Three beats page through it as **stations with a flight between them**.
+`stations.ts` gives each beat a window of its own with a stretch of empty scroll
+either side, so two of them can never be readable at once; the card arrives out
+of the vanishing point at `scale(0.74)` and leaves through the camera at 1.24,
+which is the same z axis the starfield behind it is travelling on.
+
+One number carries the whole thing. `presence` — how much beat text is on screen
+— scales the card, dims the field under copy that is being read, and hands the
+field its full speed back the moment the copy has gone. There is no second
+timeline to keep in step, because there is only one, and that is why the fastest
+part of the flight is exactly the part with nothing to look at but the flight.
+
+**The starfield.** `lib/canvas/Starfield.ts`, on the same fixed-pool discipline
+as `Particles`. Stars are projected from a depth `z` and drawn as the segment
+between where each one is and where it was a moment ago — so a stationary field
+is points and a scrolled one is streaks, with no switch between the two modes
+and no second implementation. Speed is `cruise + boost x (1 - presence) +
+gain x |dp/dt|`, damped; the scroll term decays on its own when the page stops,
+because `useSectionProgress` stops reporting and the difference goes to zero.
+
+Depth is quantised into four bands and each band is stroked as one path, because
+brightness and line width are both per-`stroke()` state and drawing honestly
+would mean one call per star. Nine hundred stars therefore cost eight. Measured
+in headless Chromium, which composites in software: 16.59 ms a frame mid-flight
+against 16.59 ms at the footer with the field unsubscribed, no long frames
+either way.
 
 The rail matters more here than in the walkthrough. The walkthrough's beats are
 captions; these contain their own controls, so with one beat on screen the rail
@@ -569,8 +604,8 @@ respects.
 
 | Asset | Budget | Current |
 | --- | --- | --- |
-| First-load JS (gzip) | 180 KB | 164.1 KB |
-| All JS chunks (gzip) | 420 KB | 360.3 KB |
+| First-load JS (gzip) | 180 KB | 165.7 KB |
+| All JS chunks (gzip) | 420 KB | 368.3 KB |
 | Desktop video | 3.70 MB | 3.34 MB / 240 frames |
 | Mobile video | 1.50 MB | 1.36 MB / 240 frames |
 | Desktop still fallback | 5.00 MB | 4.54 MB / 120 frames |
