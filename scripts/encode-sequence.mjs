@@ -41,12 +41,20 @@ const POOL = Math.max(2, Math.min(8, (await import("node:os")).cpus().length));
  * repository size and encode time, and it does not have to match the video
  * frame for frame — so both variants take a coarser stride than the video and
  * lean on the player's cross-fade between neighbours to cover the difference.
+ *
+ * The strides went 2 and 4 to 3 and 6 when the render went from 240 source
+ * frames to 360. That is deliberate and it is the whole reason the fallback
+ * did not get 50% heavier along with the video: the extra frames were bought
+ * for the *scrub*, which is the path with a decoder on it, and the still
+ * sequence is for browsers that have no decoder to feed. Holding it at 120 and
+ * 60 keeps it at exactly the density it was tuned to, and at exactly the
+ * megabytes it was budgeted for.
  */
 const VARIANTS = [
   {
     id: "desktop",
     width: 1440,
-    stride: 2,
+    stride: 3,
     // Tuned by eye against the brushed-metal highlights, which are the first
     // thing to band. alphaQuality stays high: a soft silhouette edge against
     // #09090b is very visible.
@@ -58,7 +66,7 @@ const VARIANTS = [
     // A phone scrubs the pinned section across roughly a third of the pixels a
     // desktop does, so a coarser stride still lands at a similar
     // frames-per-scrolled-pixel density on the weakest hardware in the audience.
-    stride: 4,
+    stride: 6,
     webp: { quality: 68, alphaQuality: 90, effort: 6, smartSubsample: true },
   },
 ];

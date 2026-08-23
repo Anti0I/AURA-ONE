@@ -7,14 +7,27 @@
  * channel survives and that no page chrome, scrollbar or device-pixel-ratio
  * rounding creeps into the output.
  *
- * Frame count is the one number here worth arguing about. The section scrubs
- * across roughly 2800px of scroll, so 120 frames put a new one on screen every
- * 23px — far enough apart that a slow, deliberate scroll reads as stepping
- * rather than motion. 240 halves that to about 12px, and halves the rotation
- * phase from 10 degrees per frame to 5.
+ * Frame count is the one number here worth arguing about. The stage is 460svh
+ * with a 100svh sticky child, so it scrubs across 360svh — about 3200px on a
+ * 900px viewport. 120 frames put a new picture on screen every 27px of that,
+ * far enough apart that a slow, deliberate scroll reads as stepping rather
+ * than motion. 240 halved it to 13px. 360 takes it to 9px.
+ *
+ * The third step is worth less than the second and was still worth taking. A
+ * fast flick is limited by how many frames the chain can decode and draw, not
+ * by how many exist — the perf test measures 48 distinct pictures across 60
+ * wheel steps at 240 frames, and more source frames cannot raise that. What
+ * they do raise is the slow case, where nothing is dropped and the only limit
+ * is how far the scroll has to travel before the picture is allowed to change.
+ * Under Lenis a deliberate drag moves a few pixels per rendered frame, so 13px
+ * per picture means the same image sits there for three or four frames of
+ * smooth motion and 9px means two.
+ *
+ * The timeline is a pure function of `t` in 0..1, so this changes the sampling
+ * and nothing about the animation.
  *
  * Output contract (this is the seam a Blender render has to match):
- *   assets-src/out/aura_0001.png … aura_0240.png   square, RGBA, transparent
+ *   assets-src/out/aura_0001.png … aura_0360.png   square, RGBA, transparent
  *   assets-src/out/xray-outer.png                  16:9, shell visible
  *   assets-src/out/xray-inner.png                  16:9, identical camera
  *   src/data/hotspots.json                         normalised label anchors
@@ -42,7 +55,7 @@ const args = new Map(
   }),
 );
 
-const FRAMES = Number(args.get("frames") ?? 240);
+const FRAMES = Number(args.get("frames") ?? 360);
 const SIZE = Number(args.get("size") ?? 1440);
 const XRAY_W = Number(args.get("xrayWidth") ?? 2400);
 const XRAY_H = Math.round((XRAY_W * 9) / 16);

@@ -153,16 +153,28 @@ test("a fast flick through the stage keeps the picture with the scroll", async (
   // means it stopped, and the failure this test was written against produced
   // 128 to 148 every time.
   //
-  // What is left is the reverse sweep, which is the expensive direction: a
-  // frame decodes only from the keyframe at or before it, so scrolling back up
-  // costs a rewind that scrolling down does not. On the desktop packed frame
-  // (2896x1440, 32 ms a composite in software) that lands at 42 to 80; the
-  // mobile stream, at a quarter of the pixels, reports 21 to 24. The ceiling
-  // has to clear the slower of the two without clearing the bug.
+  // Measured against the journey rather than in raw frame indices, because the
+  // index is not a stable unit: the render went from 240 source frames to 360
+  // and every gap in the same physical sweep grew by half without anything
+  // changing. A threshold in frames silently retunes itself every time the
+  // frame count moves, which is how a passing test becomes a decorative one.
+  //
+  // The reverse sweep is the expensive direction: a frame decodes only from
+  // the keyframe at or before it, so scrolling back up costs a rewind that
+  // scrolling down does not, and at 360 frames a fixed GOP is crossed half
+  // again as often per unit of scroll. On the desktop packed frame
+  // (2896x1440, composited in software here) that puts the worst single gap at
+  // 0.26 to 0.34 of the journey across five runs; the mobile stream, at a
+  // quarter of the pixels, reports 0.07.
+  //
+  // Shortening the GOP to 12 was tried and rejected: 0.14 to 0.25, still
+  // variable, for 470 KB. The number that actually separates this from the bug
+  // is `followed` above — 1.00 here against 0.10 then — and it is unit-free.
+  const worstGap = stats.frameGapMax / Math.max(1, stats.playheadTravel);
   expect(
-    stats.frameGapMax,
-    "largest jump between two consecutively displayed pictures",
-  ).toBeLessThanOrEqual(96);
+    worstGap,
+    "longest single stall, as a share of the playhead's journey",
+  ).toBeLessThanOrEqual(0.45);
 
   // Where the scroll stops, the picture has to stop too. During a fast scrub
   // the two are deliberately apart — the canvas shows the nearest frame that

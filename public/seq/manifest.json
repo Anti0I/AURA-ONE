@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-08-23T18:56:50.727Z",
-  "sourceFrameCount": 240,
+  "generatedAt": "2026-08-23T19:41:34.093Z",
+  "sourceFrameCount": 360,
   "source": {
     "width": 1440,
     "height": 1440
@@ -12,10 +12,10 @@
       "basePath": "/seq/desktop",
       "ext": "webp",
       "frameCount": 120,
-      "stride": 2,
-      "totalBytes": 5213632,
-      "maxFrameBytes": 151406,
-      "avgFrameBytes": 43447
+      "stride": 3,
+      "totalBytes": 5214936,
+      "maxFrameBytes": 151544,
+      "avgFrameBytes": 43458
     },
     "mobile": {
       "width": 720,
@@ -23,36 +23,36 @@
       "basePath": "/seq/mobile",
       "ext": "webp",
       "frameCount": 60,
-      "stride": 4,
-      "totalBytes": 1577794,
-      "maxFrameBytes": 69700,
-      "avgFrameBytes": 26297
+      "stride": 6,
+      "totalBytes": 1580578,
+      "maxFrameBytes": 69442,
+      "avgFrameBytes": 26343
     }
   },
   "video": {
     "desktop": {
       "url": "/seq/desktop.ivf",
       "codec": "vp09.00.50.08",
-      "frameCount": 240,
+      "frameCount": 360,
       "gop": 16,
       "width": 1440,
       "height": 1440,
       "matteX": 1456,
       "packedWidth": 2896,
       "packedHeight": 1440,
-      "bytes": 4057257
+      "bytes": 4516802
     },
     "mobile": {
       "url": "/seq/mobile.ivf",
       "codec": "vp09.00.40.08",
-      "frameCount": 240,
+      "frameCount": 360,
       "gop": 16,
       "width": 720,
       "height": 720,
       "matteX": 736,
       "packedWidth": 1456,
       "packedHeight": 720,
-      "bytes": 1402606
+      "bytes": 1585461
     }
   },
   "xray": {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { IvfReader } from "@/lib/canvas/ivf";
+import SEQUENCE from "@/data/sequence.json";
 
 /**
  * The container reader, against the stream the site actually ships.
@@ -10,7 +11,7 @@ import { IvfReader } from "@/lib/canvas/ivf";
  * implementation, because the bug was not in the parse: the frames it produced
  * were correct. It was in what the parse *kept* — every frame was a `subarray`
  * of a growing accumulator, so each one pinned the whole accumulator it was cut
- * from, and none of them were ever released. 181 MB retained for a 3.34 MB
+ * from, and none of them were ever released. 181 MB retained for a 4.31 MB
  * file, on the worker thread, during the hero.
  *
  * So the assertions that matter here are about identity across chunk sizes and
@@ -19,6 +20,17 @@ import { IvfReader } from "@/lib/canvas/ivf";
 
 const FILE = path.join(process.cwd(), "public", "seq", "desktop.ivf");
 const stream = new Uint8Array(fs.readFileSync(FILE));
+
+/**
+ * Read from the manifest the encoder writes, not typed in here.
+ *
+ * These were the literals 240 and 240/16, which is a test that has to be
+ * remembered every time the render changes its frame count — and was not, the
+ * first time it did. The manifest is written by the same script that produced
+ * the file being parsed, so the two cannot disagree.
+ */
+const EXPECTED_FRAMES = SEQUENCE.video.desktop.frameCount;
+const GOP = 16;
 
 /** Byte-for-byte, without allocating a JS array per frame to do it. */
 function same(a: Uint8Array, b: Uint8Array) {
@@ -43,7 +55,7 @@ describe("IvfReader", () => {
   it("reads the same frames whatever the network chunking looks like", { timeout: 60_000 }, () => {
     const whole = parse(stream.length);
     expect(whole.open).toBe(true);
-    expect(whole.frames.length).toBe(240);
+    expect(whole.frames.length).toBe(EXPECTED_FRAMES);
 
     // 1 byte at a time puts a split inside every header and every payload;
     // 13 is a prime that lands nowhere near a frame boundary; 65536 is a
@@ -68,8 +80,8 @@ describe("IvfReader", () => {
       .frames.filter((f) => f.key)
       .map((f) => f.index);
     expect(keys[0]).toBe(0);
-    expect(keys.length).toBe(240 / 16);
-    for (const index of keys) expect(index % 16).toBe(0);
+    expect(keys.length).toBe(Math.ceil(EXPECTED_FRAMES / GOP));
+    for (const index of keys) expect(index % GOP).toBe(0);
   });
 
   it("keeps no more than the stream itself, and releases consumed chunks", () => {

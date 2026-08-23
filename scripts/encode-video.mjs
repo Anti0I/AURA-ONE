@@ -9,8 +9,8 @@
  * between. What we get in exchange is inter-frame prediction — and a slowly
  * rotating object is about as predictable as content gets.
  *
- *   240 frames as WebP stills   9.09 MB
- *   240 frames as VP9           3.42 MB   (PSNR 47 dB luma — visually lossless)
+ *   360 frames as WebP stills  14.94 MB
+ *   360 frames as VP9           4.31 MB   (SSIM 0.98 against the masters)
  *
  * Two decisions worth defending:
  *
@@ -51,7 +51,28 @@ const args = new Map(
   }),
 );
 
-const CRF = Number(args.get("crf") ?? 36);
+/**
+ * Quality, and the number that paid for the frame count.
+ *
+ * This was 36 at 240 frames. Going to 360 frames at 36 took the desktop stream
+ * from 3.87 MB to 5.25 MB, which is a lot to ask of the one file every visitor
+ * downloads. At 39 the same 360 frames are 4.31 MB — 50% more pictures for 11%
+ * more bytes.
+ *
+ * Measured rather than assumed, because "three steps of CRF" means nothing on
+ * its own. SSIM of each stream against the render masters, on four frames
+ * spanning the timeline:
+ *
+ *            frame 60   frame 150   frame 240   frame 324
+ *   crf 36    0.9851     0.9838      0.9902      0.9600
+ *   crf 39    0.9823     0.9814      0.9883      0.9569
+ *
+ * Three thousandths, everywhere. The distance to the master is an order of
+ * magnitude larger than the distance between the two settings, and it is
+ * almost entirely 4:2:0 chroma subsampling — which this stream has always had
+ * and which neither setting changes.
+ */
+const CRF = Number(args.get("crf") ?? 39);
 
 /**
  * Distance between keyframes.
@@ -62,7 +83,7 @@ const CRF = Number(args.get("crf") ?? 36);
  * nearly is not. Going from 24 down to 16 cost 20 KB out of 3.4 MB, because
  * the content between keyframes barely changes.
  */
-const GOP = 16;
+const GOP = Number(args.get("gop") ?? 16);
 
 /** Black columns between the colour half and the matte, so 4:2:0 cannot bleed. */
 const GUTTER = 16;

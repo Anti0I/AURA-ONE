@@ -38,11 +38,16 @@ const MB = 1024 * 1024;
  */
 export const BUDGETS = {
   /**
-   * The VP9 streams the scrollytelling actually plays. 240 frames each; the
-   * same frames as WebP stills would be about 9.9 MB and 2.1 MB.
+   * The VP9 streams the scrollytelling actually plays. 360 frames each; the
+   * same frames as WebP stills are 14.94 MB, measured, not scaled.
+   *
+   * That ratio moved the right way when the render went from 240 frames to
+   * 360: the video was 2.6x smaller than the stills, and is now 3.5x. Denser
+   * sampling of the same motion is exactly what inter-frame prediction is good
+   * at, so the frames that were added are the cheapest ones in the file.
    */
-  desktopVideo: 4.2 * MB,
-  mobileVideo: 1.5 * MB,
+  desktopVideo: 4.65 * MB,
+  mobileVideo: 1.65 * MB,
   /**
    * The still sequences are the fallback for browsers without WebCodecs, at a
    * coarser stride than the video. The peak frame is the deep push-in, where
