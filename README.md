@@ -130,11 +130,17 @@ flat list instead.
 **Beats that cannot overlap.** The acoustics section used to cross-wipe one beat
 into the next, which put half of one paragraph above half of the next for a
 dozen wheel notches of every transition. Each beat now owns a disjoint window
-with empty scroll either side, so stopping anywhere shows one beat or none — and
-the empty stretch is where the starfield behind runs at full speed. The card
-arrives out of the vanishing point and leaves through the camera on the same z
-axis the stars travel. 900 stars stroke as eight paths, and cost nothing
-measurable: 16.59 ms a frame mid-flight against 16.59 ms with the field off.
+with empty scroll either side, so stopping anywhere shows one readable beat or
+none — measured on composed opacity at fifteen scroll positions, not assumed.
+
+**A stage instead of a slot.** All three cards live in a 3D scene, parked in
+their own corners at their own depths and turning, and the scroll calls them
+forward one at a time to dead centre where the perspective distortion is zero.
+What makes it free is a compositor detail: a rasterised layer can be turned and
+moved for nothing, but a *scale* change forces a re-raster to keep text sharp —
+so a parked card varies only its rotations. Three cards turning cost 16.62 ms a
+frame against 16.76 ms with the section unsubscribed. The 900-star field behind
+strokes as eight paths and does not register either.
 
 **Sections dissolve into each other.** `SectionHandoff` drives opacity, scale
 and a stepped blur from each section's own edges, so a boundary cross-fades

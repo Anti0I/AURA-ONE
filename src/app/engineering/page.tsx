@@ -268,14 +268,34 @@ export default function EngineeringPage() {
           nothing to look at but the flight.
         </P>
         <P>
-          The card travels the same axis the stars do: it arrives out of the
-          vanishing point and leaves through the camera rather than fading out.
-          Scale and opacity only, so the whole thing is compositor work. The
-          field costs nothing measurable beside it — 900 stars stroke as eight
-          paths, because depth is quantised into four bands and brightness and
-          line width are per-stroke state. Measured in a software compositor,
-          mid-flight and parked at the footer with the field switched off are
-          the same 16.59 ms.
+          The stage is a scene rather than a slot. All three cards are in it the
+          whole time, each parked in its own corner at its own depth, turning
+          slowly on three axes behind a{" "}
+          <Code>perspective: 1400px</Code>. The scroll brings them forward one
+          at a time to dead centre, where the perspective distortion is exactly
+          zero and the type is as sharp as if none of this were happening. A
+          parked card shows its number and its title over a schematic grid and
+          nothing else — the grid fades in as the paragraph fades out, so a card
+          waiting its turn reads as an object rather than as a panel that failed
+          to load.
+        </P>
+        <P>
+          One property of the compositor decides whether that is affordable. It
+          will move and turn a layer it has already rasterised for nothing, but
+          a change of <em>scale</em> forces it to raster again so the text stays
+          sharp — and three text cards breathing at rest would mean three of
+          those on every frame for as long as the section is on screen. So a
+          parked card varies only its rotations; its scale, depth and position
+          are frozen until the scroll actually calls it forward. Measured with
+          all three turning: 16.62 ms a frame, against 16.76 ms parked at the
+          footer with the whole section unsubscribed, and no long frames on
+          either side.
+        </P>
+        <P>
+          The field costs nothing measurable beside it. 900 stars stroke as
+          eight paths, because depth is quantised into four bands and brightness
+          and line width are per-stroke state, so drawing them honestly would
+          have meant one call per star.
         </P>
         <P>
           It is not pinned on a phone, and not for anyone who has asked for

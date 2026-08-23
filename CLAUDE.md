@@ -239,20 +239,49 @@ scroll container and is the safe way to clip around something pinned.
 Both pinned sections put `overflow-hidden` on the sticky element *itself*, which
 is fine — it is ancestors that matter.
 
-**Two beats of the same story must never share a window.** The acoustics
-section used to run beat N's exit and beat N+1's entrance over exactly the same
-stretch of scroll. That is about 36svh — a dozen wheel notches — in which half
-of one paragraph sits above half of the next and neither can be read, and
-scrolling slowly lands in it every single time. It was reported as "the text
+**A scale change re-rasterises a layer; a rotation or a translation does not.**
+This is the whole reason the acoustics stage can keep three text cards turning
+in the background for the length of the section and cost nothing. The
+compositor moves and turns an already-rasterised layer for free, but it has to
+raster *again* at every distinct scale or the text goes soft — so a card parked
+in the scene varies only its three rotations, and its scale, depth and position
+are frozen until the scroll actually brings it forward. Measured with the
+parked cards turning: 16.62 ms a frame against 16.76 ms at the footer with
+everything unsubscribed, no long frames either way. Written the obvious way,
+with a scale that breathes at rest, this would have been three re-rasters a
+frame for the whole visit.
+
+**`opacity` and `transform-style: preserve-3d` cannot share an element.**
+Opacity is a grouping property, and a grouping property computes
+`transform-style` back to `flat` — which silently collapses a card's front and
+back faces into the same plane, so the flip shows both at once and neither
+`backface-visibility` nor the z-order helps. The acoustics cards put the
+transform and the 3D context on one element and the fade on the faces inside
+it. There is no warning for this; the card simply stops being a card.
+
+**Two beats of the same story must never share a *readable* window.** The
+acoustics section used to run beat N's exit and beat N+1's entrance over exactly
+the same stretch of scroll. That is about 36svh — a dozen wheel notches — in
+which half of one paragraph sits above half of the next and neither can be read,
+and scrolling slowly lands in it every single time. It was reported as "the text
 goes weird", which is what a reader has to call it.
+
+The word *readable* is doing work. All three beats are now on screen at once,
+parked in the scene, and that is fine: at a third of full size, faded to 0.46,
+with everything except the number and the title at zero opacity, they are
+scenery. What must never be true is two of them carrying body copy anybody
+could try to read. `stations.ts` keeps the windows disjoint, and
+`tests/e2e/acoustics.spec.ts` measures the *composed* opacity of every beat's
+paragraph at fifteen scroll positions rather than trusting that the fades follow
+the arithmetic.
 
 Note that this is the **opposite** of the rule two entries below about section
 hand-off, and the difference is what is dissolving. Two backgrounds crossing
 read as one place becoming another. Two paragraphs crossing read as a fault.
-So `stations.ts` makes the windows disjoint and leaves a deliberate stretch with
-nothing on screen at all — filled, in that section, by the starfield running at
-its fastest. If a gap like that has nothing to do, the transition is wrong
-rather than the gap.
+The gap the disjoint windows leave has to be given something to do — the
+starfield runs at its fastest there, and the cards visibly turn in their parking
+spots. If a gap like that has nothing to do, the transition is wrong rather than
+the gap.
 
 Three traps that used to live here went with the wipe, because with one beat
 moving at a time there are no clipping windows left to fall into: percentage
@@ -501,17 +530,36 @@ they are genuinely different documents — one keeps a single beat in the tab
 order, the other holds all three — and `useAcousticsDemo` owns everything that
 is not layout.
 
-Three beats page through it as **stations with a flight between them**.
-`stations.ts` gives each beat a window of its own with a stretch of empty scroll
-either side, so two of them can never be readable at once; the card arrives out
-of the vanishing point at `scale(0.74)` and leaves through the camera at 1.24,
-which is the same z axis the starfield behind it is travelling on.
+**The stage is a 3D scene and every beat is always in it.** Each card has a
+parking spot — its own corner, its own depth, its own period — where it turns
+slowly on all three axes behind a `perspective: 1400px`. The scroll brings them
+forward one at a time to `translate3d(0,0,0)`, dead centre, where the
+perspective distortion is exactly zero and the copy is as sharp as flat type.
+`stations.ts` keeps their windows disjoint, so what is parked is never
+competing with what is being read: a parked card shows its number and its title
+over a schematic grid and nothing else, and the grid is the inverse of the body
+copy — one fades in as the other fades out, so a card with its paragraph hidden
+reads as an object waiting rather than as a panel that failed to load.
 
-One number carries the whole thing. `presence` — how much beat text is on screen
-— scales the card, dims the field under copy that is being read, and hands the
-field its full speed back the moment the copy has gone. There is no second
-timeline to keep in step, because there is only one, and that is why the fastest
-part of the flight is exactly the part with nothing to look at but the flight.
+The spin free-runs only while a card is parked, and the angle it will settle
+flat to is latched at the same moment. Both halves matter: if the spin kept
+accumulating on the way in, the nearest whole turn would flip somewhere
+mid-approach and the card would snap through a half rotation.
+
+One number carries the whole thing. `presence` — 0 at the parking spot, 1 on the
+front — drives the position, the depth, the scale, how far the tumble is allowed
+to swing, how bright the card is, whether its body copy exists, and how fast the
+starfield behind is running. There is no second timeline to keep in step,
+because there is only one, and that is why the fastest part of the flight is
+exactly the part with nothing to read.
+
+The read/write split is not optional here. `onProgress` runs during INPUT and
+writes only refs; a single RENDER task composes parking, approach and tumble
+into one `transform` per card. It has to be a separate task, because the tumble
+runs whether or not anybody is scrolling and `useSectionProgress` deliberately
+says nothing when the progress has not changed — a stage driven from there alone
+freezes the instant the page comes to rest. The starfield is split the same way
+for the same reason, and both are gated on visibility.
 
 **The starfield.** `lib/canvas/Starfield.ts`, on the same fixed-pool discipline
 as `Particles`. Stars are projected from a depth `z` and drawn as the segment
@@ -605,7 +653,7 @@ respects.
 | Asset | Budget | Current |
 | --- | --- | --- |
 | First-load JS (gzip) | 180 KB | 165.7 KB |
-| All JS chunks (gzip) | 420 KB | 368.3 KB |
+| All JS chunks (gzip) | 420 KB | 368.8 KB |
 | Desktop video | 3.70 MB | 3.34 MB / 240 frames |
 | Mobile video | 1.50 MB | 1.36 MB / 240 frames |
 | Desktop still fallback | 5.00 MB | 4.54 MB / 120 frames |
