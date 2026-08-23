@@ -32,10 +32,27 @@ const clamp = (v: number, min: number, max: number) =>
 const RUN_IN = 0.05;
 
 /** Pure travel between two stations. No text, field at full stretch. */
-const GAP = 0.07;
+const GAP = 0.05;
 
-/** Share of a station spent arriving, and the same again departing. */
-const FADE = 0.2;
+/**
+ * Share of a station spent arriving, and the share spent leaving.
+ *
+ * Deliberately lopsided, and both numbers are larger than they were. The first
+ * version gave the approach a fifth of a station — about 15svh, which is one
+ * and a half wheel notches from parked to fully arrived. That is not an
+ * approach, it is a cut, and it was reported as one.
+ *
+ * Coming towards you is the part worth watching, so it gets roughly twice the
+ * scroll that going away does: at the current section height, 54svh in against
+ * 26svh out. Departing quickly is also *right* — once a beat has been read
+ * there is nothing to linger over, and the scroll is already on its way
+ * somewhere else.
+ *
+ * The curve matters as much as the length; see `smoothstep` in utils. A long
+ * window on a quartic ease still reads as a snap.
+ */
+const FADE_IN = 0.45;
+const FADE_OUT = 0.22;
 
 /** Below this a beat counts as absent — no tab stop, no compositor layer. */
 export const PRESENT = 0.001;
@@ -70,12 +87,12 @@ export function stationPhase(
   // 0 at the moment this beat starts arriving, 1 when it has finished leaving.
   const local = (p - stationStart(i, count)) / span;
 
-  const enter = clamp(local / FADE, 0, 1);
+  const enter = clamp(local / FADE_IN, 0, 1);
   // The last beat never leaves. The scroll carries it off when the section
   // releases, which is the unlock and needs no animation to announce it —
   // wiping it out first would leave the frame empty for the run-out.
   const exit =
-    i === count - 1 ? 0 : clamp((local - (1 - FADE)) / FADE, 0, 1);
+    i === count - 1 ? 0 : clamp((local - (1 - FADE_OUT)) / FADE_OUT, 0, 1);
 
   const presence = enter * (1 - exit);
   return { enter, exit, presence, gone: presence <= PRESENT };
@@ -91,8 +108,8 @@ export function stationPhase(
 export function settledAt(i: number, count: number) {
   const span = stationSpan(count);
   const start = stationStart(i, count);
-  const holdFrom = start + span * FADE;
-  const holdTo = i === count - 1 ? 1 : start + span * (1 - FADE);
+  const holdFrom = start + span * FADE_IN;
+  const holdTo = i === count - 1 ? 1 : start + span * (1 - FADE_OUT);
   return (holdFrom + holdTo) / 2;
 }
 

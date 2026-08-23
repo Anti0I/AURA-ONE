@@ -56,3 +56,15 @@ export const easeOutExpo = (t: number) =>
 
 export const easeInOutQuart = (t: number) =>
   t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2;
+
+/**
+ * Gentle ease. Takes the corners off and leaves the middle nearly linear.
+ *
+ * The one to reach for when a scroll gesture is meant to feel proportional —
+ * one notch, one step closer. `easeInOutQuart` spends most of its range parked
+ * near 0 and near 1 and crosses the middle at four times the average rate, so a
+ * scroll-driven approach built on it reads as *nothing, snap, nothing* however
+ * much scroll it is given. Lengthening the window does not fix that; changing
+ * the curve does.
+ */
+export const smoothstep = (t: number) => t * t * (3 - 2 * t);

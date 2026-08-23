@@ -35,7 +35,7 @@ const AcousticsSection = dynamic(
 export function AcousticsSectionLazy() {
   const minHeight = useClientValue(() => {
     const { reducedMotion, tier } = readEnvironment();
-    return !reducedMotion && tier === "desktop" ? "380svh" : "100svh";
+    return !reducedMotion && tier === "desktop" ? "520svh" : "100svh";
   }, "100svh");
 
   return (
