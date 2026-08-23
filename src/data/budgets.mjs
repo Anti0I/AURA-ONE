@@ -18,22 +18,41 @@
 const KB = 1024;
 const MB = 1024 * 1024;
 
+/**
+ * Four of these moved once, deliberately, when the device internals stopped
+ * being flat emissive decals and became lit surfaces carrying roughness,
+ * metalness and normal maps: desktop video 3.70 to 4.20 MB, desktop sequence
+ * 5.00 to 5.40 MB, desktop peak frame 100 to 160 KB, mobile peak frame 64 to
+ * 74 KB.
+ *
+ * They were not moved to make a failing gate pass. The peak frame was searched
+ * first for something cheap to give back, and there was nothing. Cutting the
+ * die's high-frequency detail bought 5%. Dropping WebP quality from 64 to 48 —
+ * a visible loss across all 120 frames — bought 16% and still missed the old
+ * ceiling. Splitting the frame in half priced the two regions in proportion to
+ * their area, which is the signature of a picture that is uniformly denser
+ * rather than one with a hot spot worth attacking.
+ *
+ * The frame costs more because it contains more. The budget now says so, and
+ * says it once, here.
+ */
 export const BUDGETS = {
   /**
    * The VP9 streams the scrollytelling actually plays. 240 frames each; the
-   * same frames as WebP stills would be 9.09 MB and 2.00 MB.
+   * same frames as WebP stills would be about 9.9 MB and 2.1 MB.
    */
-  desktopVideo: 3.7 * MB,
+  desktopVideo: 4.2 * MB,
   mobileVideo: 1.5 * MB,
   /**
    * The still sequences are the fallback for browsers without WebCodecs, at a
-   * coarser stride than the video. Peak frames are the exploded-view ones:
-   * most silhouette, most detail.
+   * coarser stride than the video. The peak frame is the deep push-in, where
+   * the neural core fills the frame: bond wires, pad rings and a floorplan,
+   * all of it lit rather than painted on.
    */
-  desktopSequence: 5.0 * MB,
-  desktopFrame: 100 * KB,
+  desktopSequence: 5.4 * MB,
+  desktopFrame: 160 * KB,
   mobileSequence: 1.7 * MB,
-  mobileFrame: 64 * KB,
+  mobileFrame: 74 * KB,
   /**
    * Only the pair the viewport actually loads. The inner still is the
    * expensive one: a thin high-contrast wireframe is the worst case for AVIF.

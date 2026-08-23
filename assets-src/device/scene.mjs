@@ -26,10 +26,12 @@ import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import {
-  pcbTraceTexture,
-  dieTexture,
-  grilleTexture,
-  brushedRoughnessTexture,
+  pcbTextures,
+  dieTextures,
+  driverTextures,
+  cellWrapTextures,
+  grilleTextures,
+  brushedTextures,
 } from "./textures.mjs";
 
 const TAU = Math.PI * 2;
@@ -91,6 +93,22 @@ function canvasTexture(canvas, repeat = 1) {
   return tex;
 }
 
+/**
+ * The same, for a map that is data rather than a picture.
+ *
+ * Roughness, metalness and normals are numbers that happen to be stored in
+ * colour channels. Decoding them through sRGB applies a gamma curve to a
+ * quantity that has no gamma, which shows up as roughness that is wrong in the
+ * mid-tones — subtle enough to be blamed on the lighting for an hour.
+ */
+function dataTexture(canvas) {
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  return tex;
+}
+
 export function createStage(canvas) {
   const renderer = new THREE.WebGLRenderer({
     canvas,
@@ -127,15 +145,34 @@ export function createStage(canvas) {
   // The shell is neutral grey on purpose: the walkthrough is baked to frames,
   // so a colour baked in here would mean re-rendering all 240 of them per
   // variant. `setFinish` overrides it for the live configurator.
-  const brushedTex = canvasTexture(brushedRoughnessTexture(42));
-  brushedTex.colorSpace = THREE.NoColorSpace; // roughness is data, not colour
-  brushedTex.repeat.set(1, 1);
+  // Every generated map is registered here as it is made, because
+  // `Material.dispose()` does not touch the textures hanging off it — and the
+  // configurator creates and destroys this whole stage on every mount.
+  const textures = [];
+  const asData = (canvas) => {
+    const tex = dataTexture(canvas);
+    textures.push(tex);
+    return tex;
+  };
+  const asColour = (canvas) => {
+    const tex = canvasTexture(canvas);
+    textures.push(tex);
+    return tex;
+  };
+
+  const brushedMaps = brushedTextures(42);
+  const brushedRM = asData(brushedMaps.rm);
+  const brushedNormal = asData(brushedMaps.normal);
 
   const shellMat = new THREE.MeshStandardMaterial({
     color: 0x9ca0a8,
     metalness: 0.96,
     roughness: 0.38,
-    roughnessMap: brushedTex,
+    roughnessMap: brushedRM,
+    normalMap: brushedNormal,
+    // Barely there on purpose. A brush mark is a few microns deep; pushed any
+    // harder the shell stops looking anodised and starts looking hammered.
+    normalScale: new THREE.Vector2(0.28, 0.28),
   });
   const shellInnerMat = new THREE.MeshStandardMaterial({
     color: 0x2a2a30,
@@ -158,10 +195,19 @@ export function createStage(canvas) {
     metalness: 1,
     roughness: 0.33,
   });
-  const cellMat = new THREE.MeshStandardMaterial({
-    color: 0x3a3a44,
-    metalness: 0.75,
-    roughness: 0.42,
+  // The cell's end caps. Nickel-plated steel: bright, but rough enough that it
+  // does not mirror the environment the way the shell does — a battery that
+  // reflects as hard as the case reads as a second piece of jewellery.
+  const terminalMat = new THREE.MeshStandardMaterial({
+    color: 0x9a958c,
+    metalness: 0.9,
+    roughness: 0.34,
+  });
+  // Driver magnet and back plate: sintered neodymium under a nickel coat.
+  const magnetMat = new THREE.MeshStandardMaterial({
+    color: 0x4a4740,
+    metalness: 0.85,
+    roughness: 0.46,
   });
   const statusLedMat = new THREE.MeshStandardMaterial({
     color: 0x0a0a0c,
@@ -170,34 +216,89 @@ export function createStage(canvas) {
     roughness: 0.2,
   });
 
-  const pcbTex = canvasTexture(pcbTraceTexture(1337));
+  // ---- Lit surfaces, not lit pictures ------------------------------------
+  // These four all used to be a flat base colour with the whole texture on
+  // `emissiveMap`, which is why the internals read as decals. Emissive light
+  // does not come from anywhere: it takes no shading across a form, throws no
+  // highlight, and leaves the key light with nothing to do. The maps now feed
+  // `map` / `roughnessMap` / `metalnessMap` / `normalMap` and the parts are
+  // lit by the same three lights as the shell.
+  //
+  // `emissive` stays, at a fraction of its old strength, because the
+  // walkthrough drives it: the X-Ray pose and the push-in both lift these to
+  // make the internals legible through the shell. That is a deliberate
+  // stylisation on top of a lit surface, which is a different thing from the
+  // surface being made of stylisation.
+  const pcbMaps = pcbTextures(1337);
+  const pcbRM = asData(pcbMaps.rm);
+  const pcbAlbedo = asColour(pcbMaps.albedo);
   const pcbMat = new THREE.MeshStandardMaterial({
-    color: 0x08130f,
-    metalness: 0.35,
-    roughness: 0.62,
-    emissive: 0xffffff,
-    emissiveMap: pcbTex,
-    emissiveIntensity: 0.55,
+    map: pcbAlbedo,
+    roughnessMap: pcbRM,
+    metalnessMap: pcbRM,
+    normalMap: asData(pcbMaps.normal),
+    normalScale: new THREE.Vector2(1.15, 1.15),
+    metalness: 1,
+    roughness: 1,
+    emissive: 0xe4d9c8,
+    emissiveMap: pcbAlbedo,
+    emissiveIntensity: 0.06,
   });
 
-  const dieTex = canvasTexture(dieTexture(7));
+  const dieMaps = dieTextures(7);
+  const dieRM = asData(dieMaps.rm);
+  const dieAlbedo = asColour(dieMaps.albedo);
   const chipMat = new THREE.MeshStandardMaterial({
-    color: 0x0a0a0e,
-    metalness: 0.55,
-    roughness: 0.35,
-    emissive: 0xffffff,
-    emissiveMap: dieTex,
-    emissiveIntensity: 0.4,
+    map: dieAlbedo,
+    roughnessMap: dieRM,
+    metalnessMap: dieRM,
+    normalMap: asData(dieMaps.normal),
+    normalScale: new THREE.Vector2(1.0, 1.0),
+    metalness: 1,
+    roughness: 1,
+    emissive: 0xe4d9c8,
+    emissiveMap: dieAlbedo,
+    emissiveIntensity: 0.05,
   });
 
-  const grilleTex = canvasTexture(grilleTexture());
+  const grilleMaps = grilleTextures();
+  const grilleRM = asData(grilleMaps.rm);
+  const grilleAlbedo = asColour(grilleMaps.albedo);
   const grilleMat = new THREE.MeshStandardMaterial({
-    color: 0x17171c,
-    metalness: 0.8,
-    roughness: 0.4,
+    map: grilleAlbedo,
+    roughnessMap: grilleRM,
+    metalnessMap: grilleRM,
+    normalMap: asData(grilleMaps.normal),
+    normalScale: new THREE.Vector2(1.6, 1.6),
+    metalness: 1,
+    roughness: 1,
     emissive: 0xc9c4bb,
-    emissiveMap: grilleTex,
-    emissiveIntensity: 0.22,
+    emissiveMap: grilleAlbedo,
+    emissiveIntensity: 0.04,
+  });
+
+  const coneMaps = driverTextures(91);
+  const coneRM = asData(coneMaps.rm);
+  const driverFaceMat = new THREE.MeshStandardMaterial({
+    map: asColour(coneMaps.albedo),
+    roughnessMap: coneRM,
+    metalnessMap: coneRM,
+    normalMap: asData(coneMaps.normal),
+    normalScale: new THREE.Vector2(1.5, 1.5),
+    metalness: 1,
+    roughness: 1,
+  });
+
+  const wrapMaps = cellWrapTextures(55);
+  const wrapRM = asData(wrapMaps.rm);
+  const cellWrapMat = new THREE.MeshStandardMaterial({
+    map: asColour(wrapMaps.albedo),
+    roughnessMap: wrapRM,
+    metalnessMap: wrapRM,
+    normalMap: asData(wrapMaps.normal),
+    normalScale: new THREE.Vector2(1.1, 1.1),
+    metalness: 1,
+    roughness: 1,
   });
 
   // ---- Geometry ----------------------------------------------------------
@@ -208,15 +309,28 @@ export function createStage(canvas) {
   const root = new THREE.Group();
   scene.add(root);
 
-  /** Every explodable part carries its own direction and travel. */
+  /**
+   * Every explodable part carries its own direction and travel, and may carry
+   * a `turn`: extra local rotation, in radians per axis, applied in step with
+   * the explode.
+   *
+   * The driver is why this exists. Its cone has to face the bezel, which is the
+   * ear side, which is away from the camera — so assembled correctly, the one
+   * surface in the device worth looking at is the one nobody ever sees. An
+   * exploded view is allowed to turn a part to present its working face; that
+   * is what the convention is *for*. The turn runs off the same `explode`
+   * value as the travel, so it unwinds on the way back with no extra state.
+   */
   const parts = [];
-  function addPart(name, object, dir, distance) {
+  function addPart(name, object, dir, distance, turn) {
     object.userData.home = object.position.clone();
+    object.userData.homeRot = object.rotation.clone();
     parts.push({
       name,
       object,
       dir: new THREE.Vector3(dir[0], dir[1], dir[2]).normalize(),
       distance,
+      turn: turn ? new THREE.Vector3(turn[0], turn[1], turn[2]) : null,
     });
     root.add(object);
     return object;
@@ -325,26 +439,48 @@ export function createStage(canvas) {
   addPart("bezel", bezel, [0, 0, -1], 1.55);
 
   // 10 mm planar driver.
+  //
+  // A cylinder carries three material groups — wall, +Y cap, -Y cap — so the
+  // basket, the magnet at the back and the cone at the front are one mesh with
+  // three surfaces rather than three meshes. The group is turned a quarter
+  // turn about X, which sends +Y to +Z, so the cone belongs to the -Y cap:
+  // it has to face the bezel, which is the ear side.
   const driver = new THREE.Group();
   driver.add(
-    new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.13, 56), darkMat),
+    new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.13, 56), [
+      darkMat,
+      magnetMat,
+      driverFaceMat,
+    ]),
   );
   const coil = new THREE.Mesh(
     new THREE.TorusGeometry(0.3, 0.045, 16, 48),
     copperMat,
   );
   coil.rotation.x = Math.PI / 2;
-  coil.position.y = 0.02;
+  // Behind the cone, where a voice coil actually lives. It used to sit on top
+  // of it, which put the one copper thing in the assembly in front of the one
+  // surface worth looking at.
+  coil.position.y = 0.075;
   driver.add(coil);
+  const magnet = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.26, 0.29, 0.06, 40),
+    magnetMat,
+  );
+  magnet.position.y = 0.095;
+  driver.add(magnet);
   driver.rotation.x = Math.PI / 2;
   driver.position.z = -0.28;
-  addPart("driver", driver, [-0.42, -0.5, -1], 1.35);
+  // Half a turn about X swings the cone from the ear side round to the camera
+  // over the course of the explode.
+  addPart("driver", driver, [-0.42, -0.5, -1], 1.35, [Math.PI, 0, 0]);
 
-  // Li-Si cell with its copper tab.
+  // Li-Si cell with its copper tab. Wrapped label on the wall, terminals on
+  // the two caps.
   const battery = new THREE.Group();
   const cell = new THREE.Mesh(
     new THREE.CylinderGeometry(0.34, 0.34, 0.62, 48),
-    cellMat,
+    [cellWrapMat, terminalMat, terminalMat],
   );
   cell.rotation.z = Math.PI / 2;
   battery.add(cell);
@@ -416,7 +552,7 @@ export function createStage(canvas) {
 
   // Data pulses that bloom around the core during the push-in.
   const pulseMat = new THREE.MeshBasicMaterial({
-    color: 0x8fe6ff,
+    color: 0xe4d9c8,
     transparent: true,
     opacity: 0,
     depthWrite: false,
@@ -425,7 +561,7 @@ export function createStage(canvas) {
   const pulses = new THREE.Group();
   const PULSE_COUNT = 16;
   for (let i = 0; i < PULSE_COUNT; i++) {
-    pulses.add(new THREE.Mesh(new THREE.PlaneGeometry(0.035, 0.16), pulseMat));
+    pulses.add(new THREE.Mesh(new THREE.PlaneGeometry(0.018, 0.24), pulseMat));
   }
   root.add(pulses);
 
@@ -484,16 +620,32 @@ export function createStage(canvas) {
         home.y + p.dir.y * d,
         home.z + p.dir.z * d,
       );
+      if (p.turn) {
+        const r = p.object.userData.homeRot;
+        p.object.rotation.set(
+          r.x + p.turn.x * explode,
+          r.y + p.turn.y * explode,
+          r.z + p.turn.z * explode,
+        );
+      }
     }
 
     // Silicon wakes up as the camera closes in.
-    chipMat.emissiveIntensity = 0.4 + push * 2.3;
-    pcbMat.emissiveIntensity = 0.55 + explode * 0.5;
+    // Base levels are a twentieth of what they were, because these surfaces
+    // are lit now. The lift during the push-in and the explode survives in
+    // spirit -- it is there to keep the internals legible while the shell is
+    // still around them -- but it now starts from a lit part instead of
+    // standing in for the lighting altogether.
+    chipMat.emissiveIntensity = 0.05 + push * 0.85;
+    pcbMat.emissiveIntensity = 0.06 + explode * 0.16;
 
     root.updateMatrixWorld(true);
     chip.getWorldPosition(_chipWorld);
 
-    pulseMat.opacity = push * 0.85;
+    // Half the strength they had as cyan. Against the old flat slab they were
+    // a light source; against a lit package with its own highlights they were
+    // just bright rectangles hanging in the frame.
+    pulseMat.opacity = push * 0.42;
     pulses.visible = push > 0.001;
     _local.copy(_chipWorld);
     root.worldToLocal(_local);
@@ -578,6 +730,11 @@ export function createStage(canvas) {
 
   function dispose() {
     pmrem.dispose();
+    // `Material.dispose()` releases the program, not the maps hanging off it.
+    // Fifteen canvas textures across six parts is around 37 MB of GPU memory,
+    // and the configurator builds and tears down this stage on every mount, so
+    // leaving them to the collector is a leak that grows by a section visit.
+    for (const tex of textures) tex.dispose();
     scene.traverse((object) => {
       if (object.isMesh) {
         object.geometry.dispose();
@@ -614,9 +771,9 @@ export function createStage(canvas) {
       if (SHELL_PARTS.has(p.name)) p.object.visible = !hideShell;
     }
     ghost.visible = hideShell;
-    chipMat.emissiveIntensity = hideShell ? 1.9 : 0.4;
-    pcbMat.emissiveIntensity = hideShell ? 1.35 : 0.55;
-    grilleMat.emissiveIntensity = hideShell ? 0.6 : 0.22;
+    chipMat.emissiveIntensity = hideShell ? 0.75 : 0.05;
+    pcbMat.emissiveIntensity = hideShell ? 0.55 : 0.06;
+    grilleMat.emissiveIntensity = hideShell ? 0.24 : 0.04;
     renderer.render(scene, camera);
     for (const p of parts) p.object.visible = true;
     ghost.visible = false;
