@@ -107,6 +107,13 @@ test("everything interactive is reachable by keyboard", async ({ page }) => {
 });
 
 test("reduced motion is honoured", async ({ browser }) => {
+  // This one boots the page from scratch in its own context and then waits for
+  // a real frame on the canvas, so it carries the whole cost of a cold start —
+  // the preloader alone is allowed 30 s. On the default budget the *test* ran
+  // out before its own poll did, which is why raising the poll achieved
+  // nothing and the failure kept reporting as "never drew a frame".
+  test.setTimeout(120_000);
+
   const context = await browser.newContext({ reducedMotion: "reduce" });
   const page = await context.newPage();
 
@@ -132,6 +139,12 @@ test("reduced motion is honoured", async ({ browser }) => {
   // run they can be several hundred milliseconds apart; asking once right
   // after the overlay hides is a coin toss that lands the right way up on an
   // idle machine.
+  //
+  // The window is generous because this shares two workers with browsers
+  // decoding VP9 and running three.js on SwiftShader, and the document is
+  // twelve screens tall. It passed every time it ran alone and failed two full
+  // runs in three, which is a statement about the machine rather than about the
+  // page. The claim is unchanged — only how long it waits for it.
   await expect
     .poll(
       () =>
@@ -146,7 +159,7 @@ test("reduced motion is honoured", async ({ browser }) => {
           }
           return false;
         }),
-      { timeout: 20_000, message: "the walkthrough never drew a frame" },
+      { timeout: 35_000, message: "the walkthrough never drew a frame" },
     )
     .toBe(true);
 
@@ -154,6 +167,13 @@ test("reduced motion is honoured", async ({ browser }) => {
 });
 
 test("the engineering notes pass an axe audit", async ({ page }) => {
+  // Axe walks the whole document, and this document is the longest on the site
+  // and keeps getting longer. Under the two-worker run it went past the default
+  // 30 s budget and reported as `frame.evaluate: Test timeout exceeded` — which
+  // reads like a page fault and is nothing of the kind. The assertion below is
+  // unchanged; only the time it is given to reach it.
+  test.setTimeout(120_000);
+
   await page.goto("/engineering");
   await expect(
     page.getByRole("heading", { name: /What is actually going on/ }),

@@ -12,7 +12,7 @@ import { settledAt } from "../../src/components/acoustics/stations";
  * silent button would make the page a liar. That nothing starts on its own,
  * which is a promise to the visitor and not merely a browser policy being
  * enforced on us. That the starfield behind the beats is genuinely running.
- * And that the pin lets go: a section holding 380svh of scroll that never
+ * And that the pin lets go: a section holding 520svh of scroll that never
  * releases it has taken the page hostage, which is the one failure here that
  * would be worse than the feature is good.
  *
@@ -35,7 +35,7 @@ import { settledAt } from "../../src/components/acoustics/stations";
 const BEATS = ACOUSTICS.map((row) => row.title);
 
 /** Middle of the flight between beat 0 and beat 1. Nothing should be on screen. */
-const MID_FLIGHT = 0.355;
+const MID_FLIGHT = 0.3583;
 
 /**
  * Tallest bar in the meter, as a fraction of the canvas height.
