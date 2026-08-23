@@ -3,11 +3,19 @@
 import { useEffect, useRef } from "react";
 import { onFrame, Priority } from "@/lib/scroll/rafBus";
 import { readEnvironment } from "@/lib/motion";
-import { telemetry } from "@/store/transient";
 import { damp } from "@/lib/utils";
 
 /**
- * Custom cursor: a crosshair with live coordinates.
+ * Custom cursor: a dot.
+ *
+ * It was a crosshair with a live pixel readout beside it, and both went. The
+ * coordinates were the giveaway — a number that changes as fast as your hand
+ * moves and means nothing to anybody reading it, printed next to the pointer
+ * because it looks like instrumentation. That is set dressing pretending to be
+ * telemetry, and this site has real telemetry elsewhere. The crosshair went
+ * with it: aiming arms and a ranging circle imply a precision the scanner does
+ * not have and does not need, and a plain dot says "you are aiming this"
+ * without saying anything untrue.
  *
  * Only mounted on fine pointers. Replacing the cursor on a touch device is
  * worse than pointless — there is nothing to replace, and the element ends up
@@ -20,14 +28,12 @@ import { damp } from "@/lib/utils";
  */
 export function Reticle() {
   const rootRef = useRef<HTMLDivElement>(null);
-  const readoutRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     const env = readEnvironment();
     if (env.coarsePointer) return;
 
     const root = rootRef.current;
-    const readout = readoutRef.current;
     if (!root) return;
 
     let targetX = window.innerWidth / 2;
@@ -35,13 +41,10 @@ export function Reticle() {
     let x = targetX;
     let y = targetY;
     let visible = false;
-    let lastLabel = "";
 
     const onMove = (e: PointerEvent) => {
       targetX = e.clientX;
       targetY = e.clientY;
-      telemetry.pointerX = e.clientX;
-      telemetry.pointerY = e.clientY;
 
       // Only over surfaces that have hidden the native cursor. A crosshair
       // floating over body copy is decoration; over the scanner it is the
@@ -81,15 +84,6 @@ export function Reticle() {
       x = damp(x, targetX, 26, f.delta);
       y = damp(y, targetY, 26, f.delta);
       root.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
-
-      if (!readout) return;
-      // Rounded to 10s: the exact pixel is noise, and repainting a changing
-      // three-digit number every frame is a real cost for no information.
-      const label = `${Math.round(targetX / 10) * 10} ${Math.round(targetY / 10) * 10}`;
-      if (label !== lastLabel) {
-        lastLabel = label;
-        readout.textContent = label;
-      }
     }, Priority.RENDER);
 
     return () => {
@@ -106,24 +100,9 @@ export function Reticle() {
       style={{ opacity: 0 }}
       className="pointer-events-none fixed left-0 top-0 z-[80] hidden opacity-0 transition-opacity duration-200 [@media(pointer:fine)]:block"
     >
-      <div className="relative -translate-x-1/2 -translate-y-1/2">
-        <svg
-          width="46"
-          height="46"
-          viewBox="0 0 46 46"
-          fill="none"
-          className="text-signal opacity-80"
-        >
-          <circle cx="23" cy="23" r="12.5" stroke="currentColor" strokeWidth="1" opacity="0.45" />
-          <path d="M23 0v9M23 37v9M0 23h9M37 23h9" stroke="currentColor" strokeWidth="1" />
-          <circle cx="23" cy="23" r="1.5" fill="currentColor" />
-        </svg>
-        <span
-          ref={readoutRef}
-          data-numeric
-          className="absolute left-[30px] top-[26px] whitespace-nowrap text-[10px] tracking-widest text-signal/70"
-        />
-      </div>
+      {/* A 7px dot, centred on the pointer. Big enough to find against the
+          artwork, small enough that it never covers what it is aiming at. */}
+      <div className="h-[7px] w-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-signal" />
     </div>
   );
 }

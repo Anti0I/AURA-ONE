@@ -9,11 +9,9 @@ import {
   type DemoHandle,
   type DemoId,
 } from "@/lib/audio/acoustics";
-import { setAudioEnabled } from "@/lib/audio/AudioBus";
 import { prefersReducedMotion } from "@/lib/motion";
 import { Priority } from "@/lib/scroll/rafBus";
 import { onFrameWhileVisible } from "@/lib/scroll/onScreen";
-import { useAppStore } from "@/store/useAppStore";
 
 /**
  * Playback state and the spectrum meter, shared by both acoustics layouts.
@@ -52,9 +50,6 @@ export function useAcousticsDemo(bars = DEFAULT_BARS) {
   const timer = useRef(0);
   const meterRef = useRef<HTMLCanvasElement>(null);
 
-  const audioEnabled = useAppStore((s) => s.audioEnabled);
-  const toggleAudio = useAppStore((s) => s.toggleAudio);
-
   const stop = useCallback(() => {
     window.clearTimeout(timer.current);
     handle.current?.stop();
@@ -83,16 +78,11 @@ export function useAcousticsDemo(bars = DEFAULT_BARS) {
         return;
       }
 
-      // The click is the gesture the AudioContext needs, and it is also
-      // unambiguous consent — somebody pressing "hear the driver" has asked for
-      // sound. Applied directly rather than waiting for the store, so the first
-      // thing they hear is the thing they pressed; the store is then brought
-      // into line so the header control tells the truth.
-      if (!audioEnabled) {
-        setAudioEnabled(true);
-        toggleAudio();
-      }
-
+      // The click is the gesture the AudioContext needs and the only consent
+      // to sound this page ever asks for. `playDemo` builds the context if
+      // there is not one yet, so pressing Play is both the permission and the
+      // request — there is no switch to have set first, and nothing makes a
+      // noise until this line runs.
       const started = playDemo(id);
       if (!started) return; // no audio on this machine; the page is unharmed
 
@@ -106,7 +96,7 @@ export function useAcousticsDemo(bars = DEFAULT_BARS) {
         DEMO_SECONDS[id] * 1000 + 120,
       );
     },
-    [audioEnabled, playing, toggleAudio],
+    [playing],
   );
 
   // ---- Meter ---------------------------------------------------------------

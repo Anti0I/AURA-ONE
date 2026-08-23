@@ -5,12 +5,15 @@ import { ensureAudio, audioBus } from "./AudioBus";
 /**
  * The three demonstrations in the acoustics section, synthesised.
  *
- * Kept apart from `synth.ts` on purpose: that file is the interface — ticks,
- * locks, the ambient bed — and these are content. A demonstration of what the
- * product claims to do is a different kind of thing from the sound a button
- * makes, and it has a different lifetime: exactly one runs at a time, it can be
- * stopped, and it reports when it has finished so the control can go back to
- * offering it.
+ * These are the only sounds the site makes. There were once interface voices
+ * too — a hover tick, a lock, a sweep — in a `synth.ts` beside this; they went
+ * with the sound switch, because without a switch the only consent to audio is
+ * pressing Play, and a tick fired by scrolling is either inaudible or unasked
+ * for.
+ *
+ * A demonstration has a lifetime a button noise does not: exactly one runs at a
+ * time, it can be stopped, and it reports when it has finished so the control
+ * can go back to offering it.
  *
  * Everything here is oscillators, filters and a generated noise buffer. The
  * founding constraint of this project is that no asset arrives as a file, and
@@ -39,10 +42,10 @@ let demoBus: GainNode | null = null;
 /**
  * The demos' own output stage, tapped for the visualiser.
  *
- * Separate from the main bus so the meter shows the demonstration and not the
- * ambient bed underneath it. A meter that moves when nothing was asked to play
- * looks broken, and explaining that it is the pad is worse than not having the
- * meter at all.
+ * Separate from the master so the meter reads the demonstration and nothing
+ * else. A meter that moves when nothing was asked to play looks broken, and
+ * this stage is also what makes "is it actually making a noise" answerable in
+ * a headless browser with no audio hardware.
  */
 function stage(ctx: AudioContext): GainNode | null {
   const bus = audioBus();

@@ -1,11 +1,10 @@
 "use client";
 
 import { PRODUCT } from "@/data/specs";
-import { AudioToggle } from "./AudioToggle";
 
 /**
- * Fixed chrome. Deliberately thin: a wordmark, the sound control, and nothing
- * else competing with a full-bleed product render.
+ * Fixed chrome. Deliberately thin: a wordmark, and nothing else competing with
+ * a full-bleed product render.
  *
  * `mix-blend-difference` keeps it legible whether the frame behind it is the
  * near-black page or a blown-out highlight on the shell — the alternative is a
@@ -21,9 +20,6 @@ export function SiteHeader() {
         {PRODUCT.name}
         <span className="ml-2 text-ink-faint">{PRODUCT.generation}</span>
       </a>
-      <div className="pointer-events-auto">
-        <AudioToggle />
-      </div>
     </header>
   );
 }

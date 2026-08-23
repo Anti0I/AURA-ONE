@@ -2,7 +2,7 @@
  * The page has exactly one animation loop.
  *
  * Every module that needs per-frame work — the smooth-scroll integrator, the
- * canvas blit, cursor damping, particles, the FPS meter — subscribes here
+ * * canvas blit, cursor damping, particles, the starfield — subscribes here
  * instead of calling `requestAnimationFrame` itself. Two reasons:
  *
  *  1. Ordering. Subscribers run in ascending `priority`, so scroll position is

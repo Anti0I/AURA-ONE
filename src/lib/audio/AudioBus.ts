@@ -8,22 +8,40 @@
  * you at a few dozen. So: one context, created lazily on the first gesture,
  * everything downstream routed through one master gain.
  *
- * Every sound on this site is synthesised. There is no audio file to load, no
- * licence to check and nothing to preload — which also means the ambient bed
- * starts the instant it is switched on rather than after a download.
+ * ---
+ *
+ * There is exactly one way for this page to make a noise, and that is pressing
+ * Play on one of the three acoustics demonstrations. There used to be more: an
+ * ambient pad behind the whole site and a sound switch in the header to bring
+ * it up. It went, and the reason is worth keeping written down — a drone that
+ * runs for as long as the tab is open is not atmosphere, it is a thing the
+ * visitor has to go and turn off, and a switch whose honest label would be
+ * "start a drone" is not a feature.
+ *
+ * Losing the switch took the interface sounds with it, and that was not
+ * collateral. Without a switch the only consent to audio is pressing Play, so
+ * a tick fired by scrolling past the configurator would be either inaudible
+ * (because nobody had pressed Play yet) or sound nobody asked for. Both are
+ * arguments for deleting it, and the code for the pad and the ticks is gone
+ * rather than left behind a flag.
+ *
+ * Everything that remains is synthesised. There is no audio file on this site
+ * to load and no licence to check.
  */
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let bus: GainNode | null = null;
-let ambient: { stop: () => void } | null = null;
 
-/** Quiet by design: this is texture, not content. */
+/** Quiet by design: this is a demonstration, not a soundtrack. */
 const MASTER_LEVEL = 0.32;
 
 /**
  * Creates the context if a gesture allows it. Returns null when audio is
  * unavailable — callers must treat sound as optional, never as a dependency.
+ *
+ * The master fades in rather than starting at level: a gain that jumps is a
+ * step function, and a step function is broadband noise — an audible click.
  */
 export function ensureAudio(): AudioContext | null {
   if (ctx) {
@@ -40,10 +58,11 @@ export function ensureAudio(): AudioContext | null {
 
   ctx = new Ctor();
   master = ctx.createGain();
-  master.gain.value = 0;
+  master.gain.setValueAtTime(0, ctx.currentTime);
+  master.gain.linearRampToValueAtTime(MASTER_LEVEL, ctx.currentTime + 0.25);
   master.connect(ctx.destination);
 
-  // A gentle limiter so a burst of overlapping ticks cannot clip.
+  // A gentle limiter so overlapping voices cannot clip.
   const shaper = ctx.createDynamicsCompressor();
   shaper.threshold.value = -18;
   shaper.ratio.value = 6;
@@ -67,43 +86,8 @@ export function audioContext(): AudioContext | null {
   return ctx;
 }
 
-/**
- * Fades the master in or out over 400 ms. Toggling a gain to zero instantly
- * produces an audible click — the discontinuity is a step function, and a step
- * function is broadband noise.
- */
-export function setAudioEnabled(enabled: boolean) {
-  const context = enabled ? ensureAudio() : ctx;
-  if (!context || !master) return;
-
-  const now = context.currentTime;
-  master.gain.cancelScheduledValues(now);
-  master.gain.setValueAtTime(master.gain.value, now);
-  master.gain.linearRampToValueAtTime(enabled ? MASTER_LEVEL : 0, now + 0.4);
-
-  if (!enabled) {
-    // Let the fade finish before tearing the oscillators down.
-    window.setTimeout(() => {
-      ambient?.stop();
-      ambient = null;
-      void ctx?.suspend();
-    }, 450);
-  }
-}
-
-export function registerAmbient(handle: { stop: () => void } | null) {
-  ambient?.stop();
-  ambient = handle;
-}
-
-export function hasAmbient() {
-  return ambient !== null;
-}
-
-/** Releases everything. Called on unmount. */
+/** Releases everything. Called when the acoustics section unmounts. */
 export function disposeAudio() {
-  ambient?.stop();
-  ambient = null;
   void ctx?.close();
   ctx = null;
   master = null;

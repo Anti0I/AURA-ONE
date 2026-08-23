@@ -929,7 +929,7 @@ export class FrameSequencePlayer {
     if (this.opts.reportTelemetry) telemetry.displayed = shown;
 
     // Rolling average: a single slow frame should nudge the readout, not
-    // spike it, or the HUD becomes unreadable noise.
+    // spike it, or the reading becomes unreadable noise.
     this.drawMs += (performance.now() - start - this.drawMs) * 0.1;
   }
 

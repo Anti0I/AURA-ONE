@@ -77,17 +77,6 @@ test("the lazy sections pass once mounted", async ({ page }) => {
   }
 });
 
-test("the command palette passes while open", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByRole("status")).toBeHidden({ timeout: 30_000 });
-
-  await page.keyboard.press("Control+k");
-  await expect(page.getByRole("dialog")).toBeVisible();
-
-  const results = await analyse(page, '[role="dialog"]');
-  expect(describe(results)).toBe("");
-});
-
 test("everything interactive is reachable by keyboard", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("status")).toBeHidden({ timeout: 30_000 });
@@ -120,17 +109,11 @@ test("reduced motion is honoured", async ({ browser }) => {
   await page.goto("/");
   await expect(page.getByRole("status")).toBeHidden({ timeout: 30_000 });
 
-  // Lenis must not take over the scroll, and the ambient bed must stay off.
+  // Lenis must not take over the scroll.
   const smooth = await page.evaluate(() =>
     document.documentElement.classList.contains("lenis"),
   );
   expect(smooth).toBe(false);
-
-  // Anchored: /Sound/ is a substring, not a name, and the acoustics section
-  // has a "Play — Sound keeps its address." control of its own.
-  await expect(
-    page.getByRole("button", { name: /^Sound (on|off)$/ }),
-  ).toHaveAttribute("aria-pressed", "false");
 
   // The walkthrough still works — it is measured from layout, not from Lenis.
   //

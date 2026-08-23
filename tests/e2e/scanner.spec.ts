@@ -77,18 +77,6 @@ test("the component list is reachable without the scanner", async ({ page }) => 
   await expect(page.getByRole("term").filter({ hasText: "MEMS Quad-Mic Array" })).toBeVisible();
 });
 
-test("sound stays off until it is asked for", async ({ page }) => {
-  await openScanner(page);
-  // Anchored, because /Sound/ is not a name — it is a substring, and it also
-  // matches the acoustics section's "Play — Sound keeps its address.".
-  const toggle = page.getByRole("button", { name: /^Sound (on|off)$/ });
-  await expect(toggle).toHaveAttribute("aria-pressed", "false");
-
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-pressed", "true");
-  await expect(toggle).toContainText("Sound on");
-});
-
 test("the scanner sweeps on its own without a pointer", async ({ page }) => {
   // On touch there is no hover, so an inert scanner would leave the section
   // looking broken. It sweeps until someone takes over.

@@ -1,16 +1,18 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
-import { onFrame, Priority } from "@/lib/scroll/rafBus";
-
 /**
  * Per-frame telemetry, deliberately outside React.
  *
- * Producers mutate `telemetry` fields directly — a property write, no
- * allocation, no notification. The Dev Inspector is the only consumer that
- * needs to *render* these numbers, and it subscribes at 10 Hz via
- * `useTelemetry()`. Reading a value 120 times a second is free; painting it
- * 120 times a second is not, and nobody can read a number that fast anyway.
+ * Producers mutate these fields directly — a property write, no allocation, no
+ * notification, no re-render. Nothing on the page reads them: the only consumer
+ * is `tests/perf`, through `window.__telemetry` under `?debug=1`.
+ *
+ * There used to be an on-page inspector that rendered them at 10 Hz through a
+ * `useSyncExternalStore` subscription, and half of these fields existed for it
+ * — frame rate, pointer position, heap size. The panel is gone, and rather than
+ * leave numbers nobody computes for a reader nobody has, those fields went with
+ * it. What is left is what measures the scrub, which is the one thing on this
+ * site whose quality is not obvious by looking.
  */
 export interface Telemetry {
   /** Nearest frame index the scroll is asking for. */
@@ -27,8 +29,6 @@ export interface Telemetry {
   frameFloat: number;
   /** 0..1 through the pinned scrollytelling section. */
   storyProgress: number;
-  fps: number;
-  fpsMin: number;
   /** Milliseconds spent inside the canvas draw call, rolling average. */
   drawMs: number;
   /** Decoded bitmaps currently retained. */
@@ -81,10 +81,6 @@ export interface Telemetry {
    * near zero; a scheduler working against the scroll makes it climb.
    */
   decodeWaste: number;
-  pointerX: number;
-  pointerY: number;
-  /** null where the browser does not expose it (everything but Chromium). */
-  heapMB: number | null;
   canvasWidth: number;
   canvasHeight: number;
   dpr: number;
@@ -95,8 +91,6 @@ export const telemetry: Telemetry = {
   displayed: -1,
   frameFloat: 0,
   storyProgress: 0,
-  fps: 0,
-  fpsMin: 0,
   drawMs: 0,
   lruSize: 0,
   lruBytes: 0,
@@ -108,9 +102,6 @@ export const telemetry: Telemetry = {
   framesDrawn: 0,
   framesDecoded: 0,
   decodeWaste: 0,
-  pointerX: 0,
-  pointerY: 0,
-  heapMB: null,
   canvasWidth: 0,
   canvasHeight: 0,
   dpr: 1,
@@ -135,8 +126,8 @@ export function resetFrameStats() {
 /**
  * Publishes the live telemetry object on `window`, but only for `?debug=1`.
  *
- * Nothing on the page needs this: the Dev Inspector imports `telemetry`
- * directly. A test does. `window.__player` is stripped from production builds
+ * Nothing on the page needs this. A test does: `window.__player` is stripped
+ * from production builds
  * and CI builds production, which left the suite with no way to assert on
  * anything happening inside the canvas — and "it skips frames" is not a claim
  * the DOM can answer. Gating on a search parameter keeps a normal visit exactly
@@ -150,44 +141,3 @@ export function exposeTelemetry() {
   w.__resetFrameStats = resetFrameStats;
 }
 
-const SAMPLE_INTERVAL = 0.1; // seconds — 10 Hz
-
-let version = 0;
-const listeners = new Set<() => void>();
-let detach: (() => void) | null = null;
-let accumulator = 0;
-
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-
-  if (listeners.size === 1) {
-    accumulator = 0;
-    detach = onFrame((f) => {
-      accumulator += f.delta;
-      if (accumulator < SAMPLE_INTERVAL) return;
-      accumulator = 0;
-      version++;
-      for (const l of listeners) l();
-    }, Priority.MEASURE);
-  }
-
-  return () => {
-    listeners.delete(listener);
-    if (listeners.size === 0 && detach) {
-      detach();
-      detach = null;
-    }
-  };
-}
-
-const getSnapshot = () => version;
-const getServerSnapshot = () => 0;
-
-/**
- * Re-renders the caller at 10 Hz and hands back the live mutable object.
- * The returned reference is stable — read fields off it during render.
- */
-export function useTelemetry(): Telemetry {
-  useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  return telemetry;
-}

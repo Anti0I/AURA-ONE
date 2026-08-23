@@ -18,7 +18,7 @@ export function AppBoot() {
     exposeTelemetry();
 
     const env = readEnvironment();
-    // Marks the document for CSS that has to know, and for the Dev Inspector.
+    // Marks the document for CSS and for tests that need to know which tier won.
     document.documentElement.dataset.tier = env.tier;
     document.documentElement.dataset.pointer = env.coarsePointer
       ? "coarse"

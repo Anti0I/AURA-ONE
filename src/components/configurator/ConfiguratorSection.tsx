@@ -3,7 +3,6 @@
 import { useCallback, useState } from "react";
 import { MATERIALS, getMaterial } from "@/data/materials";
 import { useAppStore } from "@/store/useAppStore";
-import { tick } from "@/lib/audio/synth";
 import { cn } from "@/lib/utils";
 import { useClientValue } from "@/lib/useClientValue";
 import { SectionLabel } from "@/components/ui/SectionLabel";
@@ -85,7 +84,6 @@ export function ConfiguratorSection() {
                       setMaterial(option.id);
                       // Each finish gets its own pitch, which a sample could
                       // not do without shipping four of them.
-                      tick(880 + MATERIALS.indexOf(option) * 110, 0.11);
                     }}
                     aria-pressed={material === option.id}
                     className={cn(

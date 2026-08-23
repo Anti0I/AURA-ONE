@@ -97,7 +97,7 @@ export function Stage() {
     playerRef.current = player;
     if (process.env.NODE_ENV !== "production") {
       // Handle for the screenshot script and for poking at the cache in devtools.
-      // The Dev Inspector reads telemetry instead, so this stays out of prod.
+      // `?debug=1` publishes telemetry instead, so this stays out of production.
       (window as unknown as Record<string, unknown>).__player = player;
     }
 

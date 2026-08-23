@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { PRODUCT } from "@/data/specs";
+import { AUTHOR } from "@/data/author";
 import { AppBoot } from "@/components/AppBoot";
 import "./globals.css";
 
@@ -14,12 +15,12 @@ export const metadata: Metadata = {
   description:
     "A neural audio wearable that runs inference on-device. Built as a demonstration of scroll-driven canvas rendering, procedural asset generation and zero-dependency motion engineering.",
   applicationName: PRODUCT.name,
-  authors: [{ name: "Natan Koralewski" }],
+  authors: [{ name: AUTHOR.name }],
   openGraph: {
     type: "website",
     title: `${PRODUCT.name} — ${PRODUCT.tagline}`,
     description:
-      "Neural hardware concept site. Canvas scrollytelling, an X-ray scanner you aim, and a live engineering HUD.",
+      "Neural hardware concept site. Canvas scrollytelling, an X-ray scanner you aim, and every asset generated from code.",
   },
   robots: { index: true, follow: true },
 };
