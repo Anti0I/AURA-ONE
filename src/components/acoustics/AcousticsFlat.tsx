@@ -117,7 +117,7 @@ export function AcousticsFlat() {
               ref={meterRef}
               data-meter
               aria-hidden
-              className="mt-4 h-28 w-full [--meter-dim:#1f1f25] [--meter-signal:#4fd1ff]"
+              className="mt-4 h-28 w-full [--meter-dim:var(--color-line)] [--meter-signal:var(--color-signal)]"
             />
             {/* The axis the bars are plotted against. Without it the panel
                 is a rectangle with a line at the bottom, and a scale is the

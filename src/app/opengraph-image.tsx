@@ -40,7 +40,7 @@ export default function OpengraphImage() {
               width: 10,
               height: 10,
               borderRadius: 999,
-              background: "#4fd1ff",
+              background: "#e4d9c8",
             }}
           />
           <div
@@ -82,7 +82,7 @@ export default function OpengraphImage() {
           }}
         >
           <div style={{ display: "flex" }}>ON-DEVICE INFERENCE</div>
-          <div style={{ display: "flex", color: "#4fd1ff" }}>
+          <div style={{ display: "flex", color: "#e4d9c8" }}>
             {`${PRODUCT.weightGrams} G`}
           </div>
         </div>

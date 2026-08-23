@@ -599,7 +599,7 @@ export function AcousticsPinned() {
                 ref={meterRef}
                 data-meter
                 aria-hidden
-                className="mt-2 h-16 w-full [--meter-dim:#1f1f25] [--meter-signal:#4fd1ff]"
+                className="mt-2 h-16 w-full [--meter-dim:var(--color-line)] [--meter-signal:var(--color-signal)]"
               />
               <p
                 aria-hidden

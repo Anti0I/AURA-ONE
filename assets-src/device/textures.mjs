@@ -56,7 +56,7 @@ export function pcbTraceTexture(seed = 1337, w = 1024, h = 1024) {
 
     g.beginPath();
     g.moveTo(cx * CELL, cy * CELL);
-    g.strokeStyle = rand() < 0.18 ? "#8fe6ff" : "#2f7f6a";
+    g.strokeStyle = rand() < 0.18 ? "#e4d9c8" : "#6b6155";
     g.lineWidth = rand() < 0.25 ? 4 : 2.5;
 
     for (let s = 0; s < len; s++) {
@@ -101,19 +101,19 @@ export function dieTexture(seed = 7, size = 768) {
   const g = c.getContext("2d");
   const rand = mulberry32(seed);
 
-  g.fillStyle = "#04070a";
+  g.fillStyle = "#0a0806";
   g.fillRect(0, 0, size, size);
 
   const pad = size * 0.08;
   const inner = size - pad * 2;
 
   // IO ring.
-  g.strokeStyle = "#3ea8cc";
+  g.strokeStyle = "#a89b88";
   g.lineWidth = size * 0.012;
   g.strokeRect(pad, pad, inner, inner);
 
   // Bond pads around the perimeter.
-  g.fillStyle = "#9fd8ea";
+  g.fillStyle = "#d8cfc0";
   const padCount = 26;
   for (let i = 0; i < padCount; i++) {
     const f = (i + 0.5) / padCount;
@@ -134,14 +134,14 @@ export function dieTexture(seed = 7, size = 768) {
       const y = pad + ty * (tile + gap);
       const central = tx >= 1 && tx <= 2 && ty >= 1 && ty <= 2;
 
-      g.fillStyle = central ? "#0e2a38" : "#0a1a22";
+      g.fillStyle = central ? "#2b261d" : "#1a1712";
       g.fillRect(x, y, tile, tile);
 
       const banks = central ? 10 : 6;
       for (let b = 0; b < banks; b++) {
         const bw = tile * 0.82;
         const bh = (tile * 0.72) / banks;
-        g.fillStyle = rand() < 0.3 ? "#57c9ec" : "#1d5f78";
+        g.fillStyle = rand() < 0.3 ? "#e4d9c8" : "#7a6f60";
         g.fillRect(
           x + tile * 0.09,
           y + tile * 0.14 + b * (bh * 1.18),
@@ -153,7 +153,7 @@ export function dieTexture(seed = 7, size = 768) {
   }
 
   // Central bus, brightest element on the die.
-  g.fillStyle = "#a8ecff";
+  g.fillStyle = "#f2ebdd";
   g.fillRect(pad + inner * 0.485, pad, inner * 0.03, inner);
   g.fillRect(pad, pad + inner * 0.485, inner, inner * 0.03);
 

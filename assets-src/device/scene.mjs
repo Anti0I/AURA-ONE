@@ -115,7 +115,7 @@ export function createStage(canvas) {
   key.position.set(3.4, 4.6, 4.2);
   scene.add(key);
 
-  const rim = new THREE.DirectionalLight(0xdfefff, 2.8);
+  const rim = new THREE.DirectionalLight(0xf3efe7, 2.8);
   rim.position.set(-4.2, 1.1, -3.6);
   scene.add(rim);
 
@@ -165,7 +165,7 @@ export function createStage(canvas) {
   });
   const statusLedMat = new THREE.MeshStandardMaterial({
     color: 0x0a0a0c,
-    emissive: 0x4fd1ff,
+    emissive: 0xe4d9c8,
     emissiveIntensity: 1.4,
     roughness: 0.2,
   });
@@ -195,7 +195,7 @@ export function createStage(canvas) {
     color: 0x17171c,
     metalness: 0.8,
     roughness: 0.4,
-    emissive: 0x9fb4c4,
+    emissive: 0xc9c4bb,
     emissiveMap: grilleTex,
     emissiveIntensity: 0.22,
   });
@@ -287,7 +287,7 @@ export function createStage(canvas) {
   // them. A double-sided translucent skin looks like the product was dipped in
   // milk; this looks like a scan.
   const ghostMat = new THREE.MeshBasicMaterial({
-    color: 0x1a4150,
+    color: 0x3a352c,
     transparent: true,
     opacity: 0.2,
     depthWrite: false,
@@ -297,7 +297,7 @@ export function createStage(canvas) {
   // Deliberately coarse lathe — a 96-segment wireframe is a grey smear, a
   // 20-segment one reads as survey geometry.
   const wireMat = new THREE.MeshBasicMaterial({
-    color: 0x4fd1ff,
+    color: 0xe4d9c8,
     wireframe: true,
     transparent: true,
     opacity: 0.22,

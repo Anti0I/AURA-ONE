@@ -7,7 +7,6 @@ import { Priority } from "@/lib/scroll/rafBus";
 import { onFrameWhileVisible } from "@/lib/scroll/onScreen";
 import { Particles } from "@/lib/canvas/Particles";
 import { readEnvironment } from "@/lib/motion";
-import { lock as lockSound } from "@/lib/audio/synth";
 import { clamp, damp } from "@/lib/utils";
 import type { SequenceManifest } from "@/types/sequence";
 import { SectionLabel } from "@/components/ui/SectionLabel";
@@ -56,6 +55,12 @@ export function XraySection() {
     const env = readEnvironment();
     const particles = new Particles(140);
     const pctx = particleCanvas.getContext("2d");
+    // Read from the theme rather than written in as a hex. A canvas cannot
+    // inherit a colour, but it can be told one, and a literal here is a token
+    // nobody finds when the palette moves — which it just did.
+    const particleColor =
+      getComputedStyle(particleCanvas).getPropertyValue("--color-signal").trim() ||
+      "#e4d9c8";
 
     let width = 0;
     let height = 0;
@@ -171,14 +176,13 @@ export function XraySection() {
         if (nearest) {
           const spot = HOTSPOTS.find((h) => h.id === nearest)!;
           particles.emit(spot.x * width, spot.y * height, 26, 105);
-          lockSound();
         }
         activeId = nearest;
       }
 
       if (pctx) {
         pctx.clearRect(0, 0, width, height);
-        particles.step(pctx, f.delta, "#8fe6ff");
+        particles.step(pctx, f.delta, particleColor);
       }
     }, Priority.RENDER);
 

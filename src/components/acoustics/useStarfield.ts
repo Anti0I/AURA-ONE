@@ -41,8 +41,8 @@ const DIM = 0.45;
 function colorsFrom(el: Element): StarfieldColors {
   const styles = getComputedStyle(el);
   return {
-    star: styles.getPropertyValue("--color-star").trim() || "#9aa0b4",
-    warp: styles.getPropertyValue("--color-star-warp").trim() || "#4fd1ff",
+    star: styles.getPropertyValue("--color-star").trim() || "#c9c4bb",
+    warp: styles.getPropertyValue("--color-star-warp").trim() || "#e4d9c8",
   };
 }
 

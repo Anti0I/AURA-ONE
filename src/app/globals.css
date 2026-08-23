@@ -30,13 +30,25 @@
   --color-ink-faint: #838391;
 
   /* --- Accents ------------------------------------------------------------
-     Two accents with strict roles:
-       signal -- structure, focus rings, leader lines, active nav (11.0:1)
-       live   -- only for "something is happening right now": streaming
-                 tokens, FPS meter, recording state (16.7:1) */
-  --color-signal: #4fd1ff;
-  --color-signal-dim: #1c5f78;
-  --color-live: #c6ff3d;
+     One accent, and it has no hue.
+
+     This was an electric cyan, which is the colour every hardware concept page
+     on the internet reaches for -- and reaching for it is most of why they all
+     look like each other. Warm bone does the same structural job (focus rings,
+     leader lines, active state, selection) without announcing a genre, and it
+     sits closer to the product's own titanium and signal-white finishes than a
+     saturated accent ever did.
+
+     Contrast against --color-void: signal 13.5:1. `signal-dim` is 3.9:1 and is
+     therefore *only* for decoration -- rules, arrows, leader lines, gradient
+     tints. Never body text, and never the only way something is marked.
+
+     There used to be a second accent, `live`, for "happening right now". Its
+     three call sites were the FPS meter, the dev inspector and the audio
+     toggle; all three are gone, so it is gone with them rather than sitting
+     here waiting to be misused. */
+  --color-signal: #e4d9c8;
+  --color-signal-dim: #7a6f60;
   --color-alert: #ff5c39;
 
   /* --- Product materials (canvas tinting targets) ------------------------ */
@@ -53,8 +65,8 @@
      `star` is deliberately below --color-ink. The field is composited with
      `lighter` and stars overlap, so a value that looks right on its own goes
      to blown-out white where three of them cross. */
-  --color-star: #c6ccdd;
-  --color-star-warp: #4fd1ff;
+  --color-star: #c9c4bb;
+  --color-star-warp: #e4d9c8;
 
   /* --- Type --------------------------------------------------------------- */
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
@@ -216,8 +228,8 @@
 
 /* ==========================================================================
    Reduced motion
-   Not a courtesy branch: the scrollytelling, the scanner and the ambient bed
-   all have first-class static equivalents. See lib/motion.ts.
+   Not a courtesy branch: the scrollytelling, the scanner and the acoustics
+   section all have first-class static equivalents. See lib/motion.ts.
    ========================================================================== */
 
 @media (prefers-reduced-motion: reduce) {
@@ -238,16 +250,4 @@
 @keyframes scroll-hint {
   0% { transform: translateY(-100%); }
   55%, 100% { transform: translateY(1000%); }
-}
-
-/* Level meter in the sound control. */
-@keyframes eq {
-  from { transform: scaleY(0.28); }
-  to { transform: scaleY(1); }
-}
-
-/* Streaming caret in the playground. */
-@keyframes caret {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0; }
 }
