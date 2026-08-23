@@ -35,10 +35,10 @@ To rebuild all assets directly from code primitives:
 
 | Command | What it does | Time |
 | :--- | :--- | :--- |
-| `npm run assets:noise` | 128² tileable noise, palette PNG, 4.1 KB | Instant |
+| `npm run assets:noise` | 128² tileable noise → one palette-encoded PNG, 4.1 KB | Instant |
 | `npm run assets:prerender` | Three.js scene via headless Chromium → 360 PNGs + X-Ray pair + hotspots | ~210 s |
-| `npm run assets:encode` | Sharp → WebP/AVIF fallback variants + `public/seq/manifest.json` | ~25 s |
-| `npm run assets:video` | FFmpeg → VP9 IVF streams with packed alpha channels | ~90 s |
+| `npm run assets:encode` | Sharp → WebP/AVIF fallback variants + `public/seq/manifest.json` | ~35 s |
+| `npm run assets:video` | FFmpeg → VP9 IVF streams with packed alpha channels | ~135 s |
 
 > **Note:** `npm run assets:video` requires **FFmpeg** on your system PATH. Nothing else in the pipeline depends on external binaries.
 
@@ -52,7 +52,7 @@ To rebuild all assets directly from code primitives:
     # Full CI pipeline
     npm run build && npm run audit:budget && npm run test:e2e && npm run test:a11y && npm run test:perf
 
-* **54 End-to-End Tests (Playwright):** Testing across desktop and mobile viewports. Canvas scrollytelling doesn't mutate the DOM (0 React re-renders), so tests assert on raw pixels: viewport coverage, frame fingerprints, and mean luminance.
+* **52 End-to-End Tests (Playwright):** Testing across desktop and mobile viewports. Canvas scrollytelling doesn't mutate the DOM (0 React re-renders), so tests assert on raw pixels: viewport coverage, frame fingerprints, and mean luminance.
 * **10 Accessibility Tests:** Automated `axe-core` audit across layout chrome, lazy-mounted sections, engineering notes, skip links, keyboard navigation order, and `prefers-reduced-motion` paths.
 * **2 Scrub-Performance Suites:** Dedicated isolated runner (1 worker) measuring playback continuity. Asserts on following ratios without CI machine noise.
 * **`audit:budget` Gate:** Hard CI failure if JS bundles or binary streams exceed their committed ceilings.
@@ -66,12 +66,12 @@ Enforced strictly in CI by `scripts/audit-budget.mjs` — a budget with slack is
 | Asset / Chunk | Budget Ceiling | Production Output |
 | :--- | :--- | :--- |
 | **First-load JS (gzip)** | 180 KB | 158.9 KB |
-| **All JS chunks (gzip)** | 420 KB | 362.6 KB |
+| **All JS chunks (gzip)** | 420 KB | 366.4 KB |
 | **Desktop Video (VP9)** | 4.65 MB | 4.31 MB (360 frames) |
 | **Mobile Video (VP9)** | 1.65 MB | 1.51 MB (360 frames) |
 | **Desktop Still Fallback** | 5.40 MB | 4.97 MB (120 frames) |
 | **Mobile Still Fallback** | 1.70 MB | 1.51 MB (60 frames) |
-| **Peak Single Frame (Desktop)** | 160 KB | 147.9 KB |
+| **Peak Single Frame (Desktop)** | 160 KB | 148.0 KB |
 | **X-Ray Pair (@2400px)** | 240 KB | 192.5 KB |
 | **Noise Tile** | 6 KB | 4.1 KB |
 | **Audio Files** | 0 KB | 0 KB (100% synthesized in Web Audio API) |
