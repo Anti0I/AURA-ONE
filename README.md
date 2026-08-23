@@ -1,277 +1,119 @@
 # AURA ONE
 
-A product page for hardware that does not exist, built to demonstrate the parts
-that do: scroll-driven canvas rendering, procedural asset generation, and
-memory discipline.
+<p align="left">
+  <img src="https://img.shields.io/badge/Next.js_16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js" />
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Three.js-000000?style=for-the-badge&logo=threedotjs&logoColor=white" alt="Three.js" />
+  <img src="https://img.shields.io/badge/WebGL2-990000?style=for-the-badge&logo=webgl&logoColor=white" alt="WebGL2" />
+  <img src="https://img.shields.io/badge/WebCodecs-FF5722?style=for-the-badge&logo=w3c&logoColor=white" alt="WebCodecs" />
+  <img src="https://img.shields.io/badge/Playwright-2EAD33?style=for-the-badge&logo=playwright&logoColor=white" alt="Playwright" />
+  <img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="License" />
+</p>
 
-**Every asset is generated from code.** No stock photography, no purchased 3D
-model, no HDRI, no audio files, no paid API keys — for me or for anyone opening
-the page. Clone it and `npm run assets:all` rebuilds the lot from primitives.
+> **A high-performance product page for hardware that does not exist, built to demonstrate what does:** scroll-driven canvas rendering, procedural asset generation, and strict memory discipline.
 
-The reasoning behind the decisions below lives at [`/engineering`](src/app/engineering/page.tsx),
-rendered from the same manifest the build writes, so it cannot quote a number
-the build disagrees with.
+Every single visual and audio asset is generated entirely from code. No stock photography, no purchased 3D models, no external HDRI maps, no audio sample files, and no paid API keys. Clone the repository and `npm run assets:all` rebuilds the entire suite from primitives.
+
+The long-form architectural reasoning lives at `/engineering` (`src/app/engineering/page.tsx`), rendered directly from the build manifest to ensure documentation never drifts from code.
 
 ---
 
-## Running it
+## Running Locally
 
-```bash
-npm install
-npm run dev
-```
+    # Install dependencies
+    npm install
 
-The encoded frame sequence is committed, so a clone builds and deploys without
-a headless render. To regenerate it from the scene:
+    # Start local dev server (Turbopack)
+    npm run dev
 
-```bash
-npm run assets:all
-```
+The encoded frame sequence is committed to the repository, so a fresh clone builds and deploys without requiring a headless render pass.
 
-That runs four steps, which can also be run individually:
+### Regenerating Assets from Source
+To rebuild all assets directly from code primitives:
+
+    npm run assets:all
 
 | Command | What it does | Time |
-| --- | --- | --- |
-| `npm run assets:noise` | 128² tileable noise, palette PNG, 4.1 KB | instant |
-| `npm run assets:prerender` | Three.js scene through headless Chromium → 360 PNGs + X-Ray pair + hotspot anchors | ~210 s |
-| `npm run assets:encode` | sharp → WebP/AVIF fallback variants + `public/seq/manifest.json` | ~25 s |
-| `npm run assets:video` | ffmpeg → the VP9 streams the walkthrough actually plays | ~90 s |
+| :--- | :--- | :--- |
+| `npm run assets:noise` | 128² tileable noise, palette PNG, 4.1 KB | Instant |
+| `npm run assets:prerender` | Three.js scene via headless Chromium → 360 PNGs + X-Ray pair + hotspots | ~210 s |
+| `npm run assets:encode` | Sharp → WebP/AVIF fallback variants + `public/seq/manifest.json` | ~25 s |
+| `npm run assets:video` | FFmpeg → VP9 IVF streams with packed alpha channels | ~90 s |
 
-`assets:video` needs **ffmpeg** on the PATH. Nothing else in the pipeline does.
+> **Note:** `npm run assets:video` requires **FFmpeg** on your system PATH. Nothing else in the pipeline depends on external binaries.
 
-## Verifying it
+---
 
-```bash
-npm run verify
-```
+## Verification & Testing
 
-Typecheck, lint and 32 unit tests. The full pipeline, as CI runs it:
+    # Fast-path verification: Typecheck, lint and 32 unit tests
+    npm run verify
 
-```bash
-npm run build && npm run audit:budget && npm run test:e2e && npm run test:a11y && npm run test:perf
-```
+    # Full CI pipeline
+    npm run build && npm run audit:budget && npm run test:e2e && npm run test:a11y && npm run test:perf
 
-- **54 end-to-end tests** across desktop and mobile. The scrollytelling cannot
-  be checked by asserting on the DOM — everything that matters happens inside a
-  canvas React never re-renders — so those tests read pixels: coverage, frame
-  fingerprints, and mean luminance for the finish tests.
-- **10 accessibility tests**: an axe audit of the chrome, of every lazy section
-  once mounted and of the engineering notes, plus the skip link, keyboard
-  reachability, and the reduced-motion path.
-- **2 scrub-performance tests**, in their own config at one worker. A
-  performance number that changes by a factor of four depending on what else is
-  running is not a number: measured beside the rest of the suite this reported a
-  largest frame gap of 169, and 21 to 48 on its own.
-- **`audit:budget`** fails the build when the site outgrows what it agreed to.
+* **54 End-to-End Tests (Playwright):** Testing across desktop and mobile viewports. Canvas scrollytelling doesn't mutate the DOM (0 React re-renders), so tests assert on raw pixels: viewport coverage, frame fingerprints, and mean luminance.
+* **10 Accessibility Tests:** Automated `axe-core` audit across layout chrome, lazy-mounted sections, engineering notes, skip links, keyboard navigation order, and `prefers-reduced-motion` paths.
+* **2 Scrub-Performance Suites:** Dedicated isolated runner (1 worker) measuring playback continuity. Asserts on following ratios without CI machine noise.
+* **`audit:budget` Gate:** Hard CI failure if JS bundles or binary streams exceed their committed ceilings.
 
-There is no Lighthouse job. Its stable categories are already covered by the axe
-audit and the budget gate, and a performance score from a shared CI runner flaps
-enough that people learn to ignore it. Run it locally against a production build
-if you want the number:
+---
 
-```bash
-npm run build && npm run start
-npx lighthouse http://localhost:3000 --view --preset=desktop
-```
+## Performance Budgets
 
-## Budgets
+Enforced strictly in CI by `scripts/audit-budget.mjs` — a budget with slack is a budget nobody respects.
 
-Enforced by `scripts/audit-budget.mjs`, deliberately close to reality — a budget
-with slack in it is a budget nobody respects.
+| Asset / Chunk | Budget Ceiling | Production Output |
+| :--- | :--- | :--- |
+| **First-load JS (gzip)** | 180 KB | 158.9 KB |
+| **All JS chunks (gzip)** | 420 KB | 362.6 KB |
+| **Desktop Video (VP9)** | 4.65 MB | 4.31 MB (360 frames) |
+| **Mobile Video (VP9)** | 1.65 MB | 1.51 MB (360 frames) |
+| **Desktop Still Fallback** | 5.40 MB | 4.97 MB (120 frames) |
+| **Mobile Still Fallback** | 1.70 MB | 1.51 MB (60 frames) |
+| **Peak Single Frame (Desktop)** | 160 KB | 147.9 KB |
+| **X-Ray Pair (@2400px)** | 240 KB | 192.5 KB |
+| **Noise Tile** | 6 KB | 4.1 KB |
+| **Audio Files** | 0 KB | 0 KB (100% synthesized in Web Audio API) |
 
-| Asset | Budget | Current |
-| --- | --- | --- |
-| First-load JS (gzip) | 180 KB | 158.9 KB |
-| Desktop video | 4.65 MB | 4.31 MB · 360 frames |
-| Mobile video | 1.65 MB | 1.51 MB · 360 frames |
-| Desktop still fallback | 5.40 MB | 4.97 MB · 120 frames |
-| Mobile still fallback | 1.70 MB | 1.51 MB · 60 frames |
-| Peak frame, desktop | 160 KB | 147.9 KB |
-| All JS chunks (gzip) | 420 KB | 362.6 KB |
-| X-Ray pair @2400px | 240 KB | 192.5 KB |
-| Noise tile | 6 KB | 4.1 KB |
-| Audio files | 0 | 0 — everything is synthesised |
+---
 
-## How it is built
+## Architectural Highlights
 
-**360 frames scrubbed against scroll** on a 2D canvas, decoded in a worker so
-the main thread never does. Frames decode to the size they will be *drawn*, not
-the size they were encoded.
+* **360-Frame Scrubbing via WebCodecs:** Native `<video>` elements cannot be cleanly scrubbed due to non-deterministic seek delays. Using `VideoDecoder` directly inside a Web Worker unlocks inter-frame prediction: **4.31 MB** for 360 frames vs **14.94 MB** as WebP stills.
+* **Lightweight IVF Container Parser:** Parsing MP4 containers requires heavy client libraries (~60 KB gzipped for `mp4box.js`). IVF uses a 32-byte header and 12 bytes per frame — implemented in **30 lines of `DataView` with 0 dependencies**.
+* **Zero-Readback Packed Alpha Channel:** Video codecs lack native alpha channels. Colour and matte are packed side-by-side with a black safety gutter, then recombined inside a WebGL2 worker shader into `ImageBitmap` primitives with zero GPU readback overhead.
+* **Deterministic Scroll Bus (No GSAP / ScrollTrigger):** Pinned sections rely on native `position: sticky`. Progress is driven by a single `getBoundingClientRect` call per frame through a prioritized animation loop (`INPUT` → `RENDER` → `MEASURE`), completely eliminating layout thrashing and React re-renders.
+* **Byte-Budgeted Bitmap Cache:** `ImageBitmap` memory lives outside the JS heap and is only released via explicit `.close()` calls. `BitmapLRU` bounds cache allocations by total decoded byte weight rather than frame counts (since 24 frames take 39 MB at 640² and 199 MB at 1440²).
+* **Fully Procedural Lit PBR Internals:** Device components paint albedo, packed roughness/metalness, and height maps simultaneously in Canvas 2D (`willReadFrequently`). Height maps convert to normal maps via a custom Sobel pass, allowing internal chips and solder masks to react dynamically to scene lighting.
+* **100% Synthesized Audio:** Sound is generated entirely via Web Audio API oscillators, biquad filters, and generated brown noise. An `AudioContext` is strictly created upon user interaction (clicking Play) and remains non-existent otherwise.
 
-**A video, driven through WebCodecs.** `<video>` cannot be scrubbed —
-`currentTime` is a *request* to seek that the element answers whenever it
-likes — but that is a property of the element, not of video. `VideoDecoder`
-takes chunks and returns frames in order, which buys inter-frame prediction:
-4.31 MB against 14.94 MB for the same 360 pictures as WebP stills. The still
-sequence stays as the fallback where WebCodecs is missing, and a test deletes
-`VideoDecoder` to prove that path still draws.
+---
 
-**IVF, not MP4.** A container has to be parsed at runtime, and mp4box.js is
-~60 KB gzipped to do it. IVF is a 32-byte file header and 12 bytes per frame —
-thirty lines of `DataView` and no dependency.
+## Swapping in External 3D Renders (Blender)
 
-**A matte packed beside the colour**, since video has no alpha channel,
-recombined in a WebGL2 shader inside the worker with no readback. What comes out
-is an ordinary `ImageBitmap`, so the cache and the draw path never learn any of
-this happened.
+The pipeline isolates content generation via an **output contract**. To replace procedural Three.js assets with photorealistic Blender renders, place files into `assets-src/out/` and run `npm run assets:encode`:
 
-**Whole frames only.** The draw briefly cross-faded between the two frames the
-playhead sat between, to soften the step. Measured on the stream actually
-shipped, the two are 5 degrees of rotation apart and the blend read as a double
-exposure — and it bought no density: 58 distinct pictures across 60 wheel steps
-without it against 59 with, because a 40px step already crosses ~2.8 frames.
+* `aura_0001.png` … `aura_0360.png` — exactly 360 square PNG RGBA frames with transparent backgrounds (`Film → Transparent`).
+* `xray-outer.png` and `xray-inner.png` — 16:9 ratio, rendered from an **identical camera position**.
 
-**Two pinned sections, no scroll plugin.** The walkthrough and the acoustics
-demos are both a tall section with one `position: sticky` child, driven by a
-single `getBoundingClientRect` per frame. The acoustics one flies between three
-stations and releases at the end; on a phone, and under reduced motion, it is a
-flat list instead.
+> **Key Constraints:** Shell must be rendered in neutral grey (finishes are applied at runtime via Canvas composite passes). Story phase boundaries must match frame indices: **1–108** (Rotate), **109–252** (Explode), **253–324** (Push into core), **325–360** (Reassemble).
 
-**Beats that cannot overlap.** The acoustics section used to cross-wipe one beat
-into the next, which put half of one paragraph above half of the next for a
-dozen wheel notches of every transition. Each beat now owns a disjoint window
-with empty scroll either side, so stopping anywhere shows one readable beat or
-none — measured on composed opacity at fifteen scroll positions, not assumed.
+---
 
-**A stage instead of a slot.** All three cards live in a 3D scene, parked in
-their own corners at their own depths and turning, and the scroll calls them
-forward one at a time to dead centre where the perspective distortion is zero
-and the type is as sharp as if none of it were happening. Coming towards you
-gets about twice the scroll that going away does, on a curve that is nearly
-linear through the middle — a quartic ease over the same distance reads as
-*nothing, snap, nothing* no matter how much scroll it is given.
+## Repository Layout
 
-**The expensive thing was not the one I suspected.** A parked card holds its
-scale so the compositor never has to re-raster it, which is true and worth
-doing, and stepping the scale during an approach on the same reasoning changed
-the frame time from 19.90 ms to 19.90 ms. What actually cost was blending: any
-layer below full opacity has to be composited against what is behind it every
-frame, and behind these is a canvas repainting sixty times a second, so the
-bill follows the card's *area* — which is exactly what coming forward
-increases. Opaque, the same approach runs at 16.62 ms against a 16.60 ms
-control. The fade now belongs to the parking spot rather than to the journey.
-The 900-star field behind strokes as eight paths and does not register at all.
+    assets-src/device/     Procedural Three.js scene, geometry & texture generators
+    scripts/               Prerender harness, VP9 video encoder, CI budget audit
+    src/lib/canvas/        FrameSequencePlayer, BitmapLRU, IVF reader, WebGL2 matte shader
+    src/lib/scroll/        Unified rAF bus, Lenis integration, visibility gates
+    src/lib/audio/         AudioContext bus & real-time synthesis nodes
+    src/components/        Code-split UI sections, X-Ray scanner, 3D live configurator
+    src/data/              Hardware specs, story timeline & generated build manifests
 
-**Sections dissolve into each other.** `SectionHandoff` drives opacity, scale
-and a stepped blur from each section's own edges, so a boundary cross-fades
-instead of one panel sliding out from under another. The blur radius is
-quantised because `filter` re-rasterises the layer on every distinct value,
-where opacity and transform are free.
+---
 
-**360 source frames, for 11% more bytes than 240.** The extra frames do nothing
-for a fast flick — that is limited by how many frames the chain can decode and
-draw, and the perf test counts the same 48 distinct pictures across 60 wheel
-steps either way. They are for the slow case, where nothing is dropped and the
-only limit is how far the scroll travels before the picture may change: 13px
-per picture becomes 9px. Three things paid for them. The still fallback held at
-120 and 60 frames by taking a coarser stride, because it exists for browsers
-with no decoder and the frames were bought for the decoder. CRF went 36 to 39,
-which costs 0.003 SSIM against the render masters and saves 0.94 MB. And the
-GOP stayed at 16, which at 360 frames is a *shorter* seek in scroll terms than
-it was at 240.
+## License
 
-**The internals are lit, not painted.** Every part inside the shell — board,
-neural core, driver, cell, grille — used to be a flat base colour with its
-whole texture on `emissiveMap`, and looked it: an emissive pixel is self-lit,
-so it ignores every light in the scene, takes no shading across a form, throws
-no highlight and has no depth. A picture of a board, stuck to a box. Each
-generator now paints albedo, packed roughness/metalness and a height map from
-one set of drawing calls, and the height becomes a normal map through a Sobel
-pass, so the parts are lit by the same three lights as the shell. Roughness is
-what does the work: bare gold at 0.18 beside solder mask at 0.78 separates
-*pad* from *board* far harder than either colour does.
-
-**A texture only looks made of something if it is made of something.** The
-board is a ground pour under mask with buses routed as parallel bundles at a
-fixed pitch — offsetting a rectilinear path equally on both axes keeps every
-corner square and staggers them the way a real fan-out does — then populated
-with chip parts, leaded ICs, a can and a connector, and silkscreened. The core
-is an exposed die wire-bonded to its substrate, which is the one detail that
-says *silicon* before a viewer has read anything else in the frame.
-
-**AVIF for the X-Ray stills, WebP for the fallback sequence.** AVIF is ~18%
-smaller per frame, but AVIF-with-alpha decodes about 3× slower, and a scrub
-decodes several frames per frame of animation. Bytes are a one-time cost;
-decode is per-scrub.
-
-**A scheduler that measures itself.** The player tracks two numbers about the
-machine it is running on: how many frames a second the whole chain actually
-delivers, and how long one round trip takes. It samples the timeline at a stride
-that matches the first, and aims each request `speed x latency` frames ahead of
-the playhead so the frame arrives *at* the scroll rather than behind it. Neither
-can be a constant — the same build composites a frame in 0.1 ms on a discrete
-GPU and 32 ms on a software rasteriser, and any figure picked for one is wrong
-on the other. What it buys is that a slow machine draws fewer, wider-spaced
-pictures and still follows the scroll from end to end, which is the thing
-`tests/perf` asserts on.
-
-**Byte-budgeted bitmap cache.** `ImageBitmap` memory lives outside the JS heap
-and is released only by `close()`, so eviction is explicit and the unit tests
-assert on `close()` calls. The cache is bounded by bytes as well as by frame
-count: the same 24 frames are 39 MB decoded at 640² and 199 MB at 1440². The
-prefetch window is sized from the byte budget rather than fixed, because a
-window in frames and a ceiling in bytes only agree at one decode size.
-
-**Nothing animates off screen.** Every loop with no natural end — the sweep, the
-spin, the playhead — goes through one visibility gate. Parked at the footer with
-every section mounted: 720 canvas clears and 720 layout reads in three seconds
-before, none after.
-
-**No GSAP, no ScrollTrigger.** The pinned section is `position: sticky` and
-progress is one `getBoundingClientRect` per frame, read before anything has
-written to the DOM. One animation loop with priority-ordered subscribers, so
-scroll commits before anything draws with it.
-
-**One scene, rendered two ways.** The configurator runs the procedural scene
-live — the same one the walkthrough is baked from — because a pre-rendered
-turntable spins about one axis and turning the product over is the point. three.js
-is ~135 KB gzip and lands only in that section's chunk, so the first load is
-unchanged; a separate budget watches every chunk so weight cannot hide in a lazy
-one. It draws only while on screen, because an idle spin has no natural end.
-
-**The composite it replaced is the no-WebGL fallback.** The grey frame sequence
-recoloured at draw time with a brightness pass, a `color` blend, an `overlay`
-pass and a `destination-in` clip.
-
-**All audio is synthesised**, and there is exactly one way to hear any: press
-Play on one of the three acoustics demonstrations. No files, no licences,
-nothing to preload, and no switch — a site-wide ambient pad and a sound toggle
-both existed and both went, because a drone that runs until you turn it off is
-not atmosphere.
-
-## Swapping in a Blender render
-
-The pipeline's seam is the *output contract*, not the scene. To replace the
-procedural render with a photoreal one, drop these into `assets-src/out/` and
-run `npm run assets:encode`:
-
-- `aura_0001.png` … `aura_0360.png` — exactly 360 frames, square, **PNG RGBA
-  with a transparent background** (`Film → Transparent`).
-- `xray-outer.png` and `xray-inner.png` — 16:9, from an **identical camera**;
-  the scanner cross-fades between them and any drift shows immediately.
-
-Two constraints carry over. Render the shell in **neutral grey** — the finishes
-are canvas composites, so a baked colour means re-rendering per variant. And
-keep the phase boundaries: frames 1–108 rotate, 109–252 explode, 253–324 push
-into the core, 325–360 reassemble. Caption timing in `src/data/story.ts` is asserted
-against them by a unit test.
-
-Hotspot anchors are re-projected by `npm run assets:prerender`; if the X-Ray
-camera moves, regenerate `src/data/hotspots.json` rather than editing it.
-
-## Layout
-
-```
-assets-src/device/     procedural Three.js scene + texture generators
-scripts/               prerender, encode, budget audit, screenshots
-src/lib/canvas/        frame player, both source workers, IVF reader, matte shader, LRU
-src/lib/scroll/        one rAF bus, Lenis integration, section progress
-assets-src/device/     the scene, imported live by the configurator
-src/lib/audio/         AudioContext bus, everything synthesised
-src/components/        one directory per section
-src/data/              product data, story timing, generated manifests
-```
-
-## Licence
-
-Code MIT. `AURA ONE` is a fictional product invented for this project.
+Code is licensed under the [MIT License](LICENSE).  
+*AURA ONE is a concept device created by Antoni Kmuk as an engineering case study.*
