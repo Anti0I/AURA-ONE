@@ -15,7 +15,7 @@
  * `VideoDecoder` has no seeking in it: you hand it chunks, it hands back
  * frames, in order. What that buys is inter-frame prediction, and a slowly
  * rotating object is about as predictable as content gets — 360 frames cost
- * 4.31 MB here against 14.94 MB as WebP stills.
+ * 4.05 MB here against 14.23 MB as WebP stills.
  *
  * Three things this file has to get right:
  *
@@ -25,7 +25,7 @@
  *    thrown away — the player is about to want most of them, and they have
  *    already been paid for.
  *  - **Streaming.** Parsing starts on the first network chunk, so the hero can
- *    draw as soon as the opening keyframe has landed rather than after 4.31 MB.
+ *    draw as soon as the opening keyframe has landed rather than after 4.05 MB.
  *  - **Closing frames.** A `VideoFrame` pins a decoder buffer. Hold a handful
  *    without closing them and the decoder stalls waiting on its own pool.
  */
@@ -68,16 +68,6 @@ let compositor: MatteCompositor | null = null;
 const reader = new IvfReader();
 
 /**
- * Frames a reset is worth, expressed as decodes.
- *
- * `reset()` plus `configure()` tears down and rebuilds the decoder's pipeline.
- * Jumping forward to a keyframe only pays when it saves more decodes than the
- * reset itself costs — under that, the cheapest thing a decoder can do is keep
- * going.
- */
-const RESET_COST = 4;
-
-/**
  * How far past the frame on screen the decode head may run.
  *
  * Decoding ahead is how a scrub stays smooth, but only up to a point: the head
@@ -97,11 +87,29 @@ const LEAD = 32;
  */
 let composeMs = 8;
 
-/** Queue depth the measured composite cost can afford. */
+/**
+ * Measured time between frames leaving a busy decoder, in milliseconds.
+ *
+ * The other half of what a queued chunk costs, and the half the depth used to
+ * ignore. Composing is one step; decoding is the one before it, and on a
+ * machine without fast VP9 it is the larger. Sized on compose alone (~1 ms) the
+ * queue went 32 deep, and at 9 ms a decode that is 290 ms of latency: by the
+ * time a frame came out the playhead had moved a hundred frames on, the window
+ * had dropped it, and a forward flick showed *nothing new for 2.2 s*. The
+ * interval between outputs covers decode and compose together, whichever is
+ * the bottleneck. Seeded like `composeMs`, for the same reason.
+ */
+let outputMs = 8;
+let lastOutputAt = 0;
+/** Whether the decoder still held work when the previous frame came out. */
+let busy = false;
+
+/** Queue depth the measured per-frame cost can afford. */
 function queueDepth(): number {
+  const cost = Math.max(0.2, composeMs, outputMs);
   return Math.max(
     MIN_QUEUE,
-    Math.min(MAX_QUEUE, Math.round(TARGET_QUEUE_MS / Math.max(0.2, composeMs))),
+    Math.min(MAX_QUEUE, Math.round(TARGET_QUEUE_MS / cost)),
   );
 }
 
@@ -175,7 +183,13 @@ let windowHi = Infinity;
 function onFrame(frame: VideoFrame) {
   // The timestamp is the frame index; see `feed`.
   const index = frame.timestamp;
+  const now = performance.now();
+  // Only an interval during which the decoder was never idle measures it. A
+  // gap with nothing queued is the player not asking, not the decoder slow.
+  if (busy) outputMs += (now - lastOutputAt - outputMs) * 0.2;
+  lastOutputAt = now;
   inFlight.delete(index);
+  busy = inFlight.size > 0;
 
   try {
     if (!wanted.has(index) || !compositor || !variant || decodeWidth === 0) {
@@ -274,6 +288,8 @@ function rewind(index: number) {
   decoder!.reset();
   decoder!.configure(config());
   inFlight.clear();
+  // The next output follows a reset, not a decode; its interval measures nothing.
+  busy = false;
   head = keyframeFor(index) - 1;
 }
 
@@ -380,18 +396,18 @@ function pump() {
     // Behind the head. No choice: a frame only decodes from the keyframe at or
     // before it.
     rewind(target);
-  } else if (key > head + RESET_COST + inFlight.size) {
-    // Ahead of the head, and far enough ahead that skipping to its keyframe
-    // saves more than it costs.
+  } else if (key > head + 1) {
+    // Ahead of the head, past a keyframe: skip straight to it.
     //
-    // `inFlight.size` is the term that was missing, and leaving it out is what
-    // made a fast forward scrub fall apart. A reset drops every chunk the
-    // decoder is holding, so shortcutting past twelve frames while twenty-four
-    // are in flight throws away twice what it saves — and then the next tick
-    // does it again. The symptom was a decoder that looked saturated
-    // (inflight=24) one moment and empty the next, delivering a tenth of what
-    // it was capable of.
-    rewind(target);
+    // This used to be a `rewind()`, priced at a reset plus everything in
+    // flight, and so taken only when the skip was longer than both. But a
+    // keyframe needs no reset — it replaces every reference the decoder holds,
+    // so it can follow any chunk at all — and nothing in flight has to be
+    // dropped to get there. Skipping forward is free, and every frame skipped
+    // is a decode saved. On its own this measured as no change to the 2.2 s
+    // freeze described at `outputMs`; that was the queue depth. It is kept
+    // because a slow decoder is exactly where a wasted decode costs most.
+    head = key - 1;
   }
 
   // Walk forward to the furthest thing asked for, but not past a bounded lead.
