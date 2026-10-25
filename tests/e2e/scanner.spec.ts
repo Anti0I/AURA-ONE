@@ -10,13 +10,18 @@ async function openScanner(page: Page) {
   await page.goto("/");
   await expect(page.getByRole("status")).toBeHidden({ timeout: 30_000 });
   // The scanner is code-split behind an IntersectionObserver, so it does not
-  // exist until the page has been scrolled near it. Scroll first, then wait for
-  // the real section to replace its placeholder.
+  // exist until the page has been scrolled near it. Scroll to its placeholder,
+  // which carries the anchor, then wait for the real section to replace it.
+  //
+  // This used to jump to 80% of the document — past the scanner — and passed
+  // only because of a bug: each lazy wrapper collapsed while its chunk loaded,
+  // the page got shorter, the scroll clamped back up, and every section above
+  // mounted in a cascade. With the placeholders holding their height, only
+  // what is actually near the viewport mounts, which is the point of them.
   await page.evaluate(() =>
-    window.scrollTo({
-      top: document.body.scrollHeight * 0.8,
-      behavior: "instant",
-    }),
+    document
+      .getElementById("scanner")
+      ?.scrollIntoView({ behavior: "instant", block: "start" }),
   );
   await page.waitForSelector("#scanner [data-lens]", { timeout: 20_000 });
   await page.evaluate(() =>
