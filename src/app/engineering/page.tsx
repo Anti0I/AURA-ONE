@@ -90,7 +90,7 @@ export default function EngineeringPage() {
 
         <H3>The premise was never about the codec</H3>
         <P>
-          Which is what the first version got wrong, at a cost of 14.23 MB.
+          Which is what the first version got wrong, at a cost of 14.12 MB.
           Everything above is true of the{" "}
           <Code>&lt;video&gt;</Code> <em>element</em>, not of video. WebCodecs
           hands you the decoder directly: <Code>VideoDecoder</Code> takes
@@ -120,7 +120,7 @@ export default function EngineeringPage() {
             ],
             [
               "Same frames as WebP stills",
-              "14.23 MB — 3.5× the video, for identical pictures",
+              "14.12 MB — 3.7× the video, for identical pictures",
             ],
             [
               "Still fallback",

@@ -48,7 +48,7 @@ export declare function prebuildTextures(): Promise<void>;
 
 export declare function createStage(
   canvas: HTMLCanvasElement,
-  options?: { deferEnvironment?: boolean },
+  options?: { deferEnvironment?: boolean; offline?: boolean },
 ): Stage;
 
 export declare const PHASES: {

@@ -39,10 +39,11 @@ const MB = 1024 * 1024;
 export const BUDGETS = {
   /**
    * The VP9 streams the scrollytelling actually plays. 360 frames each; the
-   * same frames as WebP stills are 14.23 MB, measured, not scaled.
+   * same frames as WebP stills are 14.12 MB, measured, not scaled.
    *
    * That ratio moved the right way when the render went from 240 frames to
-   * 360: the video was 2.6x smaller than the stills, and is now 3.5x. Denser
+   * 360: the video was 2.6x smaller than the stills, and became 3.5x (3.7x on
+   * the current render, whose softer satin shell predicts better). Denser
    * sampling of the same motion is exactly what inter-frame prediction is good
    * at, so the frames that were added are the cheapest ones in the file.
    */

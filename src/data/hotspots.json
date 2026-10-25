@@ -1,43 +1,43 @@
 [
   {
     "id": "driver",
-    "x": 0.47595,
-    "y": 0.50316,
+    "x": 0.47604,
+    "y": 0.50046,
     "title": "10 mm Planar Driver",
     "detail": "5 Hz – 40 kHz // copper voice coil"
   },
   {
     "id": "battery",
-    "x": 0.42807,
-    "y": 0.58816,
+    "x": 0.4262,
+    "y": 0.5878,
     "title": "Li-Si Cell",
     "detail": "78 mAh // 3.85 V nominal"
   },
   {
     "id": "pcb",
-    "x": 0.54144,
-    "y": 0.39089,
+    "x": 0.53975,
+    "y": 0.41704,
     "title": "6-Layer Rigid-Flex PCB",
     "detail": "0.07 mm stack // impedance matched"
   },
   {
     "id": "chip",
-    "x": 0.56333,
-    "y": 0.37506,
+    "x": 0.55882,
+    "y": 0.40639,
     "title": "AURA N1 Neural Core",
     "detail": "2.4 GHz // 18 TOPS // 48 MB SRAM"
   },
   {
     "id": "mics",
-    "x": 0.56651,
-    "y": 0.27299,
+    "x": 0.53684,
+    "y": 0.19425,
     "title": "MEMS Quad-Mic Array",
     "detail": "Active beamforming // 68 dB SNR"
   },
   {
     "id": "sensor",
-    "x": 0.66293,
-    "y": 0.66407,
+    "x": 0.64988,
+    "y": 0.65804,
     "title": "Optical Wear Sensor",
     "detail": "IR reflectance // 120 Hz sampling"
   }

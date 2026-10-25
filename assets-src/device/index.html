@@ -33,7 +33,44 @@
       import { createStage } from "/assets-src/device/scene.mjs";
 
       const canvas = document.getElementById("stage");
-      const stage = createStage(canvas);
+      // `offline`: soft shadows between the internals, for the baked frames
+      // only. The live configurator draws the same scene without them.
+      const stage = createStage(canvas, { offline: true });
+
+      /**
+       * Feathers the frame's alpha over its outer 6%.
+       *
+       * The page draws each frame as a square inside a larger canvas, so
+       * anything the render cuts at the frame's edge is cut on the page too —
+       * a dead-straight line through the board during the push-in, where the
+       * camera is inside the assembly. Faded instead, the crop reads as depth
+       * of field rather than as the edge of a picture. Frames where nothing
+       * reaches the edge are untouched: their border is already transparent.
+       */
+      const feathered = document.createElement("canvas");
+      function feather(source) {
+        const w = source.width;
+        const h = source.height;
+        feathered.width = w;
+        feathered.height = h;
+        const g = feathered.getContext("2d");
+        g.drawImage(source, 0, 0);
+        g.globalCompositeOperation = "destination-in";
+        const band = Math.round(Math.min(w, h) * 0.06);
+        for (const [x0, y0, x1, y1] of [
+          [0, 0, band, 0],
+          [w, 0, w - band, 0],
+          [0, 0, 0, band],
+          [0, h, 0, h - band],
+        ]) {
+          const grad = g.createLinearGradient(x0, y0, x1, y1);
+          grad.addColorStop(0, "rgba(0,0,0,0)");
+          grad.addColorStop(1, "rgba(0,0,0,1)");
+          g.fillStyle = grad;
+          g.fillRect(0, 0, w, h);
+        }
+        return feathered.toDataURL("image/png");
+      }
 
       // The prerender script drives everything through this handle.
       window.__stage = {
@@ -46,7 +83,7 @@
         },
         frame(t) {
           stage.renderFrame(t);
-          return canvas.toDataURL("image/png");
+          return feather(canvas);
         },
         xray(mode) {
           stage.renderXray(mode);

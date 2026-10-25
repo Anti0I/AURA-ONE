@@ -321,10 +321,35 @@ function smdIc(p, x, y, w, h, pins) {
  * staggers them the way a real fan-out does, so one path yields the whole
  * bundle for free.
  */
+/**
+ * Where the N1 sits on the board, in UV, and the board's proportions.
+ *
+ * Mirrors the placement in `scene.mjs` — chip centre 0.06 right of and 0.04
+ * above the board's, a 0.52 package on a 1.55 × 0.9 board. The texture is
+ * square and the board is not, so anything measured as a distance here has to
+ * be scaled back to the board's aspect.
+ */
+export const BOARD = { w: 1.55, h: 0.9, socket: { u: 0.5387, v: 0.5444, size: 0.52 } };
+
 export function pcbTextures(seed = 1337, size = 1024) {
   const p = painter(size, size);
   const rand = mulberry32(seed);
   const S = size / 1024; // everything below is authored at 1024
+
+  // Everything the scene needs to put real geometry where parts are painted,
+  // in canvas pixels. A painted part with a 3D body exactly on top of it is
+  // what makes the board read as populated rather than printed.
+  const placements = [];
+
+  // The routing again, as a mask, for the light that runs along the traces
+  // into the core during the push-in. At 256 the camera's close-up made every
+  // trace a 30-pixel smear; 512 keeps them tracks.
+  const FLOW = 512;
+  const flow = makeReadableCanvas(FLOW, FLOW);
+  const fg = flow.getContext("2d");
+  fg.fillStyle = "#000";
+  fg.fillRect(0, 0, FLOW, FLOW);
+  const F = FLOW / size;
 
   // Milled edge. RoundedBoxGeometry maps the rounded rim to the outer margin
   // of UV space, so painting bare fibreglass in the border is what gives the
@@ -429,6 +454,14 @@ export function pcbTextures(seed = 1337, size = 1024) {
       });
       paint(p, TRACE, width);
       each(p, (c) => spine(c, dx));
+
+      fg.save();
+      fg.scale(F, F);
+      fg.strokeStyle = "#f00";
+      fg.lineWidth = Math.max(1 / F, width);
+      fg.lineCap = "square";
+      spine(fg, dx);
+      fg.restore();
     }
 
     // Via at the end of the bundle: gold annulus around a drilled hole.
@@ -457,10 +490,17 @@ export function pcbTextures(seed = 1337, size = 1024) {
     paint(p, SILK, 1.6 * S);
     each(p, (c) => c.strokeRect(x - 4 * S, y - 4 * S, w + 8 * S, h + 8 * S));
     smdChip(p, x, y, w, h, body);
+    placements.push({ kind: "passive", x, y, w, h, light: body !== BODY_DARK });
   }
 
-  smdIc(p, M + inner * 0.5, M + inner * 0.14, 118 * S, 150 * S, 9);
-  smdIc(p, M + inner * 0.13, M + inner * 0.58, 86 * S, 108 * S, 7);
+  const ics = [
+    [M + inner * 0.5, M + inner * 0.14, 118 * S, 150 * S, 9],
+    [M + inner * 0.13, M + inner * 0.58, 86 * S, 108 * S, 7],
+  ];
+  for (const [x, y, w, h, pins] of ics) {
+    smdIc(p, x, y, w, h, pins);
+    placements.push({ kind: "ic", x, y, w, h });
+  }
 
   // An electrolytic can, for the one part with real height on it.
   const canX = M + inner * 0.78;
@@ -488,6 +528,7 @@ export function pcbTextures(seed = 1337, size = 1024) {
     c.arc(canX, canY, 44 * S, 0, Math.PI * 2);
     c.fill();
   });
+  placements.push({ kind: "can", x: canX, y: canY, r: 44 * S });
 
   // A board-to-board connector: the densest thing on any real assembly.
   const fx = M + inner * 0.06;
@@ -498,6 +539,7 @@ export function pcbTextures(seed = 1337, size = 1024) {
   for (let i = 0; i < 20; i++) {
     rect(p, fx + 7 * S, fy + 10 * S + i * 8.6 * S, 30 * S, 3.6 * S);
   }
+  placements.push({ kind: "connector", x: fx, y: fy, w: 44 * S, h: 190 * S });
 
   // ---- Silkscreen --------------------------------------------------------
   paint(p, SILK);
@@ -525,10 +567,192 @@ export function pcbTextures(seed = 1337, size = 1024) {
     disc(p, M + inner * fxr, M + inner * fyr, 7 * S);
   }
 
+  // ---- N1 land pattern ---------------------------------------------------
+  // What the core leaves behind when it lifts off in the exploded view. It
+  // used to leave random routing and half a painted IC, which said the chip
+  // had been sitting on nothing in particular. A BGA land grid with its
+  // silkscreen corners says *socket*. Painted last, over whatever the router
+  // put there, because on a real board nothing else is routed under a BGA.
+  const sock = BOARD.socket;
+  const sw = (sock.size / BOARD.w) * size;
+  const sh = (sock.size / BOARD.h) * size;
+  const sx = sock.u * size - sw / 2;
+  const sy = (1 - sock.v) * size - sh / 2;
+  paint(p, MASK);
+  rect(p, sx, sy, sw, sh);
+  fg.fillStyle = "#000";
+  fg.fillRect(sx * F, sy * F, sw * F, sh * F);
+  const BALLS = 14;
+  for (let i = 0; i < BALLS; i++) {
+    for (let j = 0; j < BALLS; j++) {
+      // The centre is depopulated, as it is on most large BGAs.
+      if (Math.abs(i - 6.5) < 3 && Math.abs(j - 6.5) < 3) continue;
+      paint(p, GOLD);
+      each(p, (c) => {
+        c.beginPath();
+        c.ellipse(
+          sx + ((i + 0.5) / BALLS) * sw,
+          sy + ((j + 0.5) / BALLS) * sh,
+          (sw / BALLS) * 0.28,
+          (sh / BALLS) * 0.28,
+          0,
+          0,
+          Math.PI * 2,
+        );
+        c.fill();
+      });
+    }
+  }
+  paint(p, SILK, 3 * S);
+  const tick = Math.min(sw, sh) * 0.12;
+  each(p, (c) => {
+    for (const [cx, cy, dx, dy] of [
+      [sx, sy, 1, 1],
+      [sx + sw, sy, -1, 1],
+      [sx, sy + sh, 1, -1],
+      [sx + sw, sy + sh, -1, -1],
+    ]) {
+      c.beginPath();
+      c.moveTo(cx + dx * tick, cy);
+      c.lineTo(cx, cy);
+      c.lineTo(cx, cy + dy * tick);
+      c.stroke();
+    }
+  });
+  paint(p, SILK);
+  disc(p, sx + tick * 0.6, sy + tick * 0.6, 6 * S);
+
+  // ---- Flow distance -------------------------------------------------------
+  // G = how far each texel is from the socket, measured on the board rather
+  // than on the square texture, so a pulse contracts as a circle and not as an
+  // ellipse stretched along the long edge.
+  const fd = fg.getImageData(0, 0, FLOW, FLOW);
+  const reach = Math.hypot(BOARD.w * 0.6, BOARD.h * 0.6);
+  for (let y = 0; y < FLOW; y++) {
+    for (let x = 0; x < FLOW; x++) {
+      const u = (x + 0.5) / FLOW;
+      const v = 1 - (y + 0.5) / FLOW;
+      const d = Math.hypot((u - sock.u) * BOARD.w, (v - sock.v) * BOARD.h) / reach;
+      fd.data[(y * FLOW + x) * 4 + 1] = Math.round(Math.min(1, d) * 255);
+    }
+  }
+  fg.putImageData(fd, 0, 0);
+
   return {
     albedo: p.albedo,
     rm: p.rm,
     normal: normalFromHeight(p.height, 2.6, 512),
+    flow,
+    placements,
+    size,
+  };
+}
+
+/* ==========================================================================
+   Perforation
+   ========================================================================== */
+
+/**
+ * A tileable laser-drilled hole pattern, for the mic grille.
+ *
+ * Holes are height as well as colour, for the same reason as the acoustic
+ * grille's: a printed dot is a dot, a drilled hole has a lit lip and a shaded
+ * one. Staggered rows, because a square grid of holes reads as a texture and a
+ * staggered one reads as machining.
+ */
+export function perforationTextures(size = 256) {
+  const p = painter(size, size);
+  // The plate is close to the shell's own metal: a grille cut in the case, not
+  // a black part set into it. Dark, it read as a slot.
+  const PLATE = { colour: "#8c9097", rough: 0.46, metal: 0.95, height: 0.7 };
+  const HOLE = { colour: "#030304", rough: 0.95, metal: 0.0, height: 0.1 };
+  paint(p, PLATE);
+  rect(p, 0, 0, size, size);
+  // Eight columns and ten rows: an even row count is what lets the stagger
+  // wrap, and 10 rows at 0.8 of the column pitch is near enough the 0.866 of
+  // a true hexagonal packing. One row and column past each edge so the tile
+  // wraps without a seam.
+  const COLS = 8;
+  const ROWS = 10;
+  const pitch = size / COLS;
+  const rowStep = size / ROWS;
+  paint(p, HOLE);
+  for (let row = -1; row <= ROWS; row++) {
+    const shift = ((row % 2) + 2) % 2 ? 0.5 : 0;
+    for (let col = -1; col <= COLS; col++) {
+      disc(p, (col + shift + 0.5) * pitch, (row + 0.5) * rowStep, pitch * 0.27);
+    }
+  }
+  return {
+    albedo: p.albedo,
+    rm: p.rm,
+    normal: normalFromHeight(p.height, 2.4, 256),
+  };
+}
+
+/* ==========================================================================
+   Shell interior
+   ========================================================================== */
+
+/**
+ * The inside of the top shell: bare anodic film over the machined pocket, and
+ * an antenna plated straight onto it.
+ *
+ * Laser direct structuring is how small enclosures carry their antennas —
+ * a meander of gold on the inner wall rather than a separate part — and it is
+ * what turns the inside of the case from an empty grey bowl into evidence
+ * that the case is part of the radio. Mapped in lathe UV: U runs around the
+ * body, V from the rim to the crown.
+ */
+export function antennaTextures(seed = 23, w = 1024, h = 256) {
+  const p = painter(w, h);
+  const rand = mulberry32(seed);
+  const WALL = { colour: "#2b2c31", rough: 0.62, metal: 0.55, height: 0.5 };
+  const LDS = { colour: "#c9a24a", rough: 0.24, metal: 1.0, height: 0.56 };
+  paint(p, WALL);
+  rect(p, 0, 0, w, h);
+
+  // Faint toolpath rings from the pocketing pass, colour and height together.
+  for (let i = 0; i < 40; i++) {
+    const y = rand() * h;
+    paint(p, { ...WALL, colour: rand() < 0.5 ? "#303137" : "#28292e", height: 0.5 + (rand() - 0.5) * 0.04 }, 1 + rand() * 2);
+    each(p, (c) => {
+      c.beginPath();
+      c.moveTo(0, y);
+      c.lineTo(w, y);
+      c.stroke();
+    });
+  }
+
+  // The meander, on one flank of the dome, fed from two pads at the rim.
+  paint(p, LDS, 7);
+  const x0 = w * 0.08;
+  const x1 = w * 0.3;
+  const top = h * 0.22;
+  const bottom = h * 0.78;
+  const turns = 7;
+  each(p, (c) => {
+    c.lineJoin = "round";
+    c.beginPath();
+    c.moveTo(x0, h * 0.96);
+    c.lineTo(x0, bottom);
+    for (let i = 0; i < turns; i++) {
+      const x = x0 + ((i + 0.5) / turns) * (x1 - x0);
+      const y = i % 2 ? bottom : top;
+      c.lineTo(x, i % 2 ? top : bottom);
+      c.lineTo(x, y);
+    }
+    c.lineTo(x1, h * 0.96);
+    c.stroke();
+  });
+  paint(p, LDS);
+  rect(p, x0 - 14, h * 0.9, 28, 18);
+  rect(p, x1 - 14, h * 0.9, 28, 18);
+
+  return {
+    albedo: p.albedo,
+    rm: p.rm,
+    normal: normalFromHeight(p.height, 1.6, 512),
   };
 }
 
@@ -972,12 +1196,10 @@ export function grilleTextures(size = 512) {
    ========================================================================== */
 
 /**
- * Brushed-metal shell maps.
+ * Shell grain maps.
  *
- * The single highest-value texture in the scene: without it the shell is a
- * perfect mirror and reads as an untextured blob. Streaks run along U, which
- * on a lathe is the circumference — i.e. brushed around the body, the way an
- * anodised aluminium shell actually comes off the tool.
+ * Streaks run along U, which on a lathe is the circumference — around the
+ * body, the way a shell comes off the tool.
  *
  * Colour is *not* written here, and cannot be: tinting in the configurator
  * operates on the material's base colour, so any hue baked into an albedo map
@@ -985,6 +1207,12 @@ export function grilleTextures(size = 512) {
  * grain — and the grain has to exist in the normal as well as in the gloss,
  * because a brush mark that only changes roughness stays perfectly flat under
  * a moving light.
+ *
+ * The roughness channel sits near 1 and only *modulates*. It used to average
+ * 0.43, and three.js multiplies the map by the material's own roughness, so a
+ * shell authored at 0.38 rendered at 0.16: a mirror. That is the whole reason
+ * the case read as chrome on a page that calls it bead-blasted aluminium — and
+ * why every finish in the configurator was glossier than its own number.
  */
 export function brushedTextures(seed = 42, w = 1024, h = 512) {
   const rm = makeCanvas(w, h);
@@ -993,8 +1221,8 @@ export function brushedTextures(seed = 42, w = 1024, h = 512) {
   const zg = height.getContext("2d");
   const rand = mulberry32(seed);
 
-  // Mid roughness, fully metal.
-  rg.fillStyle = "rgb(0,110,245)";
+  // Full material roughness, fully metal; the grain varies it by a few percent.
+  rg.fillStyle = "rgb(0,236,245)";
   rg.fillRect(0, 0, w, h);
   zg.fillStyle = "rgb(128,128,128)";
   zg.fillRect(0, 0, w, h);
@@ -1004,7 +1232,7 @@ export function brushedTextures(seed = 42, w = 1024, h = 512) {
     const len = w * (0.08 + rand() * 0.55);
     const x = rand() * w;
     const bright = rand();
-    const rough = Math.round(110 + (bright - 0.5) * 96);
+    const rough = Math.round(236 + (bright - 0.5) * 36);
     const lift = Math.round(128 + (bright - 0.5) * 46);
     const width = rand() < 0.75 ? 1 : 2;
     const alpha = 0.25 + rand() * 0.5;
@@ -1017,10 +1245,16 @@ export function brushedTextures(seed = 42, w = 1024, h = 512) {
       c.strokeStyle = style;
       c.lineWidth = width;
       c.globalAlpha = alpha;
-      c.beginPath();
-      c.moveTo(x, y);
-      c.lineTo(x + len, y + dy);
-      c.stroke();
+      // A streak that runs off the right edge is drawn again one width to the
+      // left, so it comes back in on the left: the map wraps around the lathe
+      // without a seam. Only those streaks — drawing every one twice doubled
+      // the cost of the most expensive set the configurator generates.
+      for (const ox of x + len > w ? [0, -w] : [0]) {
+        c.beginPath();
+        c.moveTo(x + ox, y);
+        c.lineTo(x + ox + len, y + dy);
+        c.stroke();
+      }
     }
   }
   rg.globalAlpha = 1;
