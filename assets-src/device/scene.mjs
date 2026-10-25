@@ -372,6 +372,24 @@ export function createStage(canvas, { deferEnvironment = false } = {}) {
    * value as the travel, so it unwinds on the way back with no extra state.
    */
   const parts = [];
+
+  /**
+   * When each part moves, as a share of the explode's own progress.
+   *
+   * Everything used to move at once, which is not something a case can do: the
+   * internals set off sideways while the shell halves had barely parted, so
+   * the N1 core and the board left through the front of the top shell and the
+   * driver through the wall of the bottom one — about thirty frames, opening
+   * and closing. The enclosure now opens first and the internals start only
+   * once the rims have cleared them, then leave through the opening. The
+   * overlap is what keeps it one movement rather than two. Played backwards,
+   * the same windows put everything back in before the case closes.
+   * `scripts/check-clearance.mjs` holds the line on every frame.
+   */
+  const OPENS_FIRST = new Set(["shellTop", "shellBottom", "bezel", "mics", "sensor"]);
+  const ENCLOSURE_WINDOW = [0, 0.55];
+  const INTERNAL_WINDOW = [0.3, 1];
+
   function addPart(name, object, dir, distance, turn) {
     object.userData.home = object.position.clone();
     object.userData.homeRot = object.rotation.clone();
@@ -381,6 +399,7 @@ export function createStage(canvas, { deferEnvironment = false } = {}) {
       dir: new THREE.Vector3(dir[0], dir[1], dir[2]).normalize(),
       distance,
       turn: turn ? new THREE.Vector3(turn[0], turn[1], turn[2]) : null,
+      window: OPENS_FIRST.has(name) ? ENCLOSURE_WINDOW : INTERNAL_WINDOW,
     });
     root.add(object);
     return object;
@@ -572,7 +591,10 @@ export function createStage(canvas, { deferEnvironment = false } = {}) {
     seatOnShell(holder, -0.62 + i * 0.41, 0.46, 0.006);
     mics.add(holder);
   }
-  addPart("mics", mics, [0, 1, -0.55], 0.95);
+  // Travels with the top shell, because it is set into it. It used to leave on
+  // a path of its own, so the four ports slid across the dome as it lifted and
+  // then hung underneath it as four loose dots.
+  addPart("mics", mics, [0, 1, 0], 1.55);
 
   // Optical wear sensor on the outer face.
   const sensor = new THREE.Group();
@@ -590,7 +612,8 @@ export function createStage(canvas, { deferEnvironment = false } = {}) {
   );
   sensor.add(sensorRing);
   seatOnShell(sensor, 0.34, -0.3, 0.004);
-  addPart("sensor", sensor, [0.7, -0.5, 1], 1.1);
+  // With the bottom shell, for the same reason as the mics.
+  addPart("sensor", sensor, [0, -1, 0], 1.55);
 
   // Status LED. Reads as nothing at a glance and as a considered detail on a
   // second look, which is exactly what it is for.
@@ -646,12 +669,18 @@ export function createStage(canvas, { deferEnvironment = false } = {}) {
   /** Applies the whole timeline. Pure function of `t` — no accumulated state. */
   function applyTimeline(t) {
     const rot = range(t, 0, PHASES.ROTATE_END);
-    const explode =
+    // How far open the case is, *linear* in t. Each part eases its own share of
+    // it below; easing this as well would double the curve and turn every
+    // part's move into a lurch through the middle.
+    const open =
       t < PHASES.EXPLODE_END
-        ? range(t, PHASES.ROTATE_END, PHASES.EXPLODE_END)
+        ? clamp01((t - PHASES.ROTATE_END) / (PHASES.EXPLODE_END - PHASES.ROTATE_END))
         : t < PHASES.PUSH_END
           ? 1
-          : 1 - range(t, PHASES.PUSH_END, 1);
+          : 1 - clamp01((t - PHASES.PUSH_END) / (1 - PHASES.PUSH_END));
+    // The whole-assembly value, for the camera and the yaw: exactly what it
+    // was before the parts were staggered.
+    const explode = smoother(open);
     const push =
       t < PHASES.PUSH_END
         ? range(t, PHASES.HOLD_END, PHASES.PUSH_END)
@@ -663,7 +692,8 @@ export function createStage(canvas, { deferEnvironment = false } = {}) {
     root.rotation.x = explode * -0.17;
 
     for (const p of parts) {
-      const d = p.distance * explode;
+      const e = range(open, p.window[0], p.window[1]);
+      const d = p.distance * e;
       const home = p.object.userData.home;
       p.object.position.set(
         home.x + p.dir.x * d,
@@ -673,9 +703,9 @@ export function createStage(canvas, { deferEnvironment = false } = {}) {
       if (p.turn) {
         const r = p.object.userData.homeRot;
         p.object.rotation.set(
-          r.x + p.turn.x * explode,
-          r.y + p.turn.y * explode,
-          r.z + p.turn.z * explode,
+          r.x + p.turn.x * e,
+          r.y + p.turn.y * e,
+          r.z + p.turn.z * e,
         );
       }
     }
@@ -715,7 +745,13 @@ export function createStage(canvas, { deferEnvironment = false } = {}) {
     // between closed and fully exploded, so the framing has to follow it or
     // the outer parts simply leave the frame — the same move a camera operator
     // would make, and the reason Apple's exploded shots never feel cramped.
-    _camBase.copy(CAM_HOME).multiplyScalar(1 + explode * 0.62);
+    //
+    // Driven by the enclosure's own window, not the whole explode: the shell
+    // halves are what reach the top and bottom of the frame, and they now get
+    // there in the first half of the move. Following the overall progress
+    // instead, the camera lagged them and the top shell left the frame.
+    const spread = range(open, ENCLOSURE_WINDOW[0], ENCLOSURE_WINDOW[1]);
+    _camBase.copy(CAM_HOME).multiplyScalar(1 + spread * 0.62);
 
     // Then dolly toward the core along a fixed offset.
     _chipTarget.copy(_chipWorld).add(CHIP_OFFSET);
@@ -881,6 +917,103 @@ export function createStage(canvas, { deferEnvironment = false } = {}) {
     renderer.dispose();
   }
 
+  // ---- Clearance ---------------------------------------------------------
+  // The explode is choreography, and choreography can walk a part straight
+  // through a wall without anything complaining: the N1 core used to leave
+  // through the front of the top shell for about thirty frames of the
+  // walkthrough, and nothing but a visitor ever noticed. This is the check that
+  // would have. `scripts/check-clearance.mjs` runs it over every frame.
+
+  const ENCLOSURE = ["shellTop", "shellBottom"];
+  const INTERNALS = new Set(["driver", "battery", "pcb", "chip"]);
+  /** Contact is not a crossing. Under a hundredth of the shell's radius. */
+  const CLEARANCE_EPS = 0.01;
+  const _sample = new THREE.Vector3();
+  const _ta = new THREE.Vector3();
+  const _tb = new THREE.Vector3();
+  const _tc = new THREE.Vector3();
+
+  /**
+   * World-space points spread over every triangle of a mesh, not just its
+   * vertices. A board's broad face has vertices only at its rounded edges, and
+   * a dome can push through the middle of it without touching any of them.
+   */
+  function surfaceSamples(mesh, steps = 4) {
+    const pos = mesh.geometry.getAttribute("position");
+    const index = mesh.geometry.getIndex();
+    const count = index ? index.count : pos.count;
+    const out = [];
+    for (let i = 0; i < count; i += 3) {
+      const ia = index ? index.getX(i) : i;
+      const ib = index ? index.getX(i + 1) : i + 1;
+      const ic = index ? index.getX(i + 2) : i + 2;
+      _ta.fromBufferAttribute(pos, ia);
+      _tb.fromBufferAttribute(pos, ib);
+      _tc.fromBufferAttribute(pos, ic);
+      for (let u = 0; u <= steps; u++) {
+        for (let v = 0; v <= steps - u; v++) {
+          const w = steps - u - v;
+          out.push(
+            new THREE.Vector3()
+              .addScaledVector(_ta, u / steps)
+              .addScaledVector(_tb, v / steps)
+              .addScaledVector(_tc, w / steps)
+              .applyMatrix4(mesh.matrixWorld),
+          );
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Internal parts that cross a shell wall at timeline position `t`.
+   *
+   * Each half is the solid it would be if its open rim were capped, tested
+   * analytically from the same superellipse the lathe was built from. Points
+   * on the open side of the rim are not counted either way — leaving through
+   * the opening is exactly what a part is supposed to do. A part with samples
+   * both inside and outside that solid, on the walled side, is through the
+   * wall: every part here is near enough convex that it cannot get from one to
+   * the other without crossing it.
+   */
+  function clearance(t) {
+    applyTimeline(clamp01(t));
+    const shells = parts.filter((p) => ENCLOSURE.includes(p.name));
+    const crossings = [];
+    for (const part of parts) {
+      if (!INTERNALS.has(part.name)) continue;
+      part.object.traverse((mesh) => {
+        if (!mesh.isMesh) return;
+        const samples = surfaceSamples(mesh);
+        for (const shell of shells) {
+          const sign = shell.name === "shellTop" ? 1 : -1;
+          let inside = 0;
+          let outside = 0;
+          for (const point of samples) {
+            _sample.copy(point);
+            shell.object.worldToLocal(_sample);
+            const y = _sample.y * sign;
+            if (y < 0) continue;
+            if (y > H + CLEARANCE_EPS) {
+              outside++;
+              continue;
+            }
+            const d =
+              Math.hypot(_sample.x, _sample.z / FLATTEN) -
+              profileRadius(R, H, Math.min(y, H));
+            if (d < -CLEARANCE_EPS) inside++;
+            else if (d > CLEARANCE_EPS) outside++;
+          }
+          if (inside > 0 && outside > 0) {
+            crossings.push({ part: part.name, shell: shell.name, inside, outside });
+          }
+        }
+      });
+    }
+    return crossings;
+  }
+
   // ---- X-Ray pair --------------------------------------------------------
   // Both stills come from this one camera and pose. Rendering them from an
   // identical transform is what lets the scanner mask cross-fade between them
@@ -984,6 +1117,7 @@ export function createStage(canvas, { deferEnvironment = false } = {}) {
     renderFrame,
     renderXray,
     getHotspots,
+    clearance,
     orbit,
     setFinish,
     prepare,

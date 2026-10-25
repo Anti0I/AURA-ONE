@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-23T19:41:34.093Z",
+  "generatedAt": "2026-10-25T22:31:04.742Z",
   "sourceFrameCount": 360,
   "source": {
     "width": 1440,
@@ -13,9 +13,9 @@
       "ext": "webp",
       "frameCount": 120,
       "stride": 3,
-      "totalBytes": 5214936,
-      "maxFrameBytes": 151544,
-      "avgFrameBytes": 43458
+      "totalBytes": 4974258,
+      "maxFrameBytes": 150548,
+      "avgFrameBytes": 41452
     },
     "mobile": {
       "width": 720,
@@ -24,9 +24,9 @@
       "ext": "webp",
       "frameCount": 60,
       "stride": 6,
-      "totalBytes": 1580578,
-      "maxFrameBytes": 69442,
-      "avgFrameBytes": 26343
+      "totalBytes": 1491194,
+      "maxFrameBytes": 68694,
+      "avgFrameBytes": 24853
     }
   },
   "video": {
@@ -40,7 +40,7 @@
       "matteX": 1456,
       "packedWidth": 2896,
       "packedHeight": 1440,
-      "bytes": 4516802
+      "bytes": 4246245
     },
     "mobile": {
       "url": "/seq/mobile.ivf",
@@ -52,7 +52,7 @@
       "matteX": 736,
       "packedWidth": 1456,
       "packedHeight": 720,
-      "bytes": 1585461
+      "bytes": 1490934
     }
   },
   "xray": {

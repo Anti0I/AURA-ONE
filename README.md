@@ -66,12 +66,12 @@ Enforced strictly in CI by `scripts/audit-budget.mjs` — a budget with slack is
 | Asset / Chunk | Budget Ceiling | Production Output |
 | :--- | :--- | :--- |
 | **First-load JS (gzip)** | 180 KB | 158.9 KB |
-| **All JS chunks (gzip)** | 420 KB | 366.4 KB |
-| **Desktop Video (VP9)** | 4.65 MB | 4.31 MB (360 frames) |
-| **Mobile Video (VP9)** | 1.65 MB | 1.51 MB (360 frames) |
-| **Desktop Still Fallback** | 5.40 MB | 4.97 MB (120 frames) |
-| **Mobile Still Fallback** | 1.70 MB | 1.51 MB (60 frames) |
-| **Peak Single Frame (Desktop)** | 160 KB | 148.0 KB |
+| **All JS chunks (gzip)** | 420 KB | 367.5 KB |
+| **Desktop Video (VP9)** | 4.65 MB | 4.05 MB (360 frames) |
+| **Mobile Video (VP9)** | 1.65 MB | 1.42 MB (360 frames) |
+| **Desktop Still Fallback** | 5.40 MB | 4.74 MB (120 frames) |
+| **Mobile Still Fallback** | 1.70 MB | 1.42 MB (60 frames) |
+| **Peak Single Frame (Desktop)** | 160 KB | 147.0 KB |
 | **X-Ray Pair (@2400px)** | 240 KB | 192.5 KB |
 | **Noise Tile** | 6 KB | 4.1 KB |
 | **Audio Files** | 0 KB | 0 KB (100% synthesized in Web Audio API) |
@@ -80,7 +80,7 @@ Enforced strictly in CI by `scripts/audit-budget.mjs` — a budget with slack is
 
 ## Architectural Highlights
 
-* **360-Frame Scrubbing via WebCodecs:** Native `<video>` elements cannot be cleanly scrubbed due to non-deterministic seek delays. Using `VideoDecoder` directly inside a Web Worker unlocks inter-frame prediction: **4.31 MB** for 360 frames vs **14.94 MB** as WebP stills.
+* **360-Frame Scrubbing via WebCodecs:** Native `<video>` elements cannot be cleanly scrubbed due to non-deterministic seek delays. Using `VideoDecoder` directly inside a Web Worker unlocks inter-frame prediction: **4.05 MB** for 360 frames vs **14.23 MB** as WebP stills.
 * **Lightweight IVF Container Parser:** Parsing MP4 containers requires heavy client libraries (~60 KB gzipped for `mp4box.js`). IVF uses a 32-byte header and 12 bytes per frame — implemented in **30 lines of `DataView` with 0 dependencies**.
 * **Zero-Readback Packed Alpha Channel:** Video codecs lack native alpha channels. Colour and matte are packed side-by-side with a black safety gutter, then recombined inside a WebGL2 worker shader into `ImageBitmap` primitives with zero GPU readback overhead.
 * **Deterministic Scroll Bus (No GSAP / ScrollTrigger):** Pinned sections rely on native `position: sticky`. Progress is driven by a single `getBoundingClientRect` call per frame through a prioritized animation loop (`INPUT` → `RENDER` → `MEASURE`), completely eliminating layout thrashing and React re-renders.
