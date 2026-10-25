@@ -29,7 +29,7 @@ npm run audit:budget     # asset + JS budget gate; needs a build first
 npm run test:e2e         # 52 Playwright tests, desktop + mobile (~7 min)
 npm run test:a11y        # 10 axe / keyboard / reduced-motion tests
 npm run test:perf        # scrub continuity, own config, one worker (~35 s)
-npm run assets:all       # regenerate every asset (~6.5 min; needs ffmpeg)
+npm run assets:all       # regenerate every asset (~8 min; needs ffmpeg)
 node scripts/shoot.mjs   # screenshot the stage at five scroll positions
 node scripts/check-clearance.mjs  # no part through a shell wall, every frame
 ```
@@ -395,6 +395,14 @@ Anchor these patterns at both ends.
 
 ### Tests and tooling
 
+**A test can pass because of the bug next to it.** The scanner suite jumped
+to 80% of the document — past the scanner — and waited for it to mount. It
+only ever worked because of the lazy-mount cascade: the collapsing wrappers
+shortened the page, the scroll clamped back up, and everything above mounted.
+Fixing the cascade failed all eight scanner tests at once. When a fix breaks
+a test, check what the test was actually relying on before touching the fix.
+`openScanner` now scrolls to the scanner's own anchor.
+
 **A Playwright test can fail on its own budget rather than on its claim.** Two
 failures reported as page faults — "the walkthrough never drew a frame" and
 `frame.evaluate: Test timeout` — were both the default **30 s test timeout**
@@ -472,9 +480,12 @@ one-liner.**
 
 ```
 assets-src/device/          procedural Three.js scene, imported live by the configurator
-  scene.mjs                 geometry, materials, timeline, X-Ray poses, hotspot projection
-  textures.mjs              albedo / roughness-metalness / normal sets per part
-  index.html                render harness; importmap resolves into node_modules
+  scene.mjs                 geometry, materials, timeline, X-Ray poses, hotspot projection,
+                            studio, shader warm-up (prepare), clearance(t)
+  textures.mjs              albedo / roughness-metalness / normal sets per part; the board
+                            also reports its part placements and a trace-flow mask
+  index.html                render harness (offline: shadows, edge feather);
+                            importmap resolves into node_modules
 
 scripts/
   prerender.mjs             headless Chromium → PNG frames + X-Ray pair + hotspots.json
@@ -483,6 +494,7 @@ scripts/
   make-noise.mjs            128² tileable noise
   audit-budget.mjs          the budget gate; budgets live in src/data/budgets.mjs
   shoot.mjs                 screenshots at named scroll positions
+  check-clearance.mjs       every frame: no internal part through a shell wall
 
 src/lib/
   canvas/                   FrameSequencePlayer, BitmapLRU, tint, Particles, Starfield
@@ -667,7 +679,7 @@ it: press Play on one of the three demonstrations.
 ## Asset pipeline
 
 ```bash
-npm run assets:all   # noise → prerender (~210 s) → encode (~35 s) → video (~135 s)
+npm run assets:all   # noise → prerender (~300 s) → encode (~35 s) → video (~135 s)
 ```
 
 The encoded output is committed; the ~348 MB of master PNGs in `assets-src/out/`
@@ -693,6 +705,10 @@ pixels: coverage, frame fingerprints, mean luminance.
 
 - `tests/unit/` — LRU eviction, `close()` and the byte ceiling; the IVF reader
   across four chunkings; caption timing; station windows; damping.
+- `scripts/check-clearance.mjs` — not a test-runner suite, but a gate: the
+  explode tested against the shell walls at every frame. Run it after any
+  change to a part's size, position, direction or distance, and before a
+  re-render.
 - `tests/e2e/` — 52 tests, `desktop` and `mobile` projects. Includes deleting
   `VideoDecoder` to prove the still path still draws, and measuring *composed*
   opacity of every acoustics paragraph at fifteen scroll positions rather than
