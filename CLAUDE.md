@@ -142,6 +142,19 @@ once the rims have cleared them. `node scripts/check-clearance.mjs` tests every
 frame analytically against the shell's own superellipse; run it after touching
 any part's position, direction or distance.
 
+**A roughness map multiplies the material's roughness; it does not replace
+it.** The shell grain map averaged 0.43 in G, so a shell authored at 0.38
+rendered at 0.16 — a mirror — on a page that calls it bead-blasted. Every
+finish in the configurator was glossier than its own number for the same
+reason. Data maps that only *modulate* sit near 1.
+
+**At exact symmetry the rasteriser can crack.** The opening frame had a
+one-pixel vertical line down the bottom shell, in the old render and the new:
+at t = 0 the front meridian lands on a column of pixel centres. It existed at
+t = 0 and t = 1 only and moved with nothing. A 0.09° yaw offset removes it;
+the comment at `root.rotation.y` says so, because that constant otherwise
+looks like a mistake.
+
 **Emissive is not lighting.** An `emissiveMap` is self-lit: it ignores every
 light, takes no shading across a form, throws no specular and carries no depth.
 Every internal part used to be a flat base colour with its whole texture on
@@ -517,8 +530,8 @@ invisible when it works *and* when it breaks.
 
 **Why a video, given the player exists because video cannot be scrubbed.** That
 is true of the `<video>` *element*, not of video: `currentTime` is a request to
-seek, `VideoDecoder` is not. Inter-frame prediction then costs 4.05 MB where the
-same 360 pictures cost 14.23 MB as stills.
+seek, `VideoDecoder` is not. Inter-frame prediction then costs 3.82 MB where the
+same 360 pictures cost 14.12 MB as stills.
 
 **Scheduling.** Everything the player does about a fast scrub comes from two
 self-measurements: delivery rate in frames per second, and round-trip latency in
@@ -560,6 +573,26 @@ window into the lower one. The lens is a fixed-size element that is
 *translated*, and the copy of the artwork inside it is translated by exactly the
 opposite amount — animating `mask-image` or `clip-path` position recomputes the
 mask on the compositor's critical path every frame.
+
+**The model.** One lathe per shell half, then three exactly-invertible
+deformations (`deformPoint`) that turn a symmetric pebble into an earbud: a
+taller end, a flatter outer face, a fuller ear face. Exactly invertible
+because `clearance()` tests in the undeformed space against the analytic
+superellipse; a deformation without an inverse would have meant testing
+against a mesh. Anything on the surface — the mic grille, the sensor, the
+LED — is a `conformPatch`: a grid placed vertex by vertex on the deformed
+shell, because a flat decal on a curved body is a chord that sinks in the
+middle. Each half is a wall (outer lathe, inset inner lathe, machined rim).
+The board's 3D components sit on the pads `pcbTextures` reports in
+`placements`, mapped through the RoundedBox's own UVs (`boardPoint`) rather
+than `(u − 0.5) × width`, which misses by the width of the rounded edge.
+The flex is re-laid between its two ends every frame, allocation-free,
+because the configurator's `orbit` runs the timeline every frame. Lighting is
+`createStudio`: softbox panels in a black room, PMREM'd — no HDRI. Shadows
+exist in the baked frames only (`offline`), between internals only. The
+harness feathers each baked frame's alpha over its outer 6%, because the page
+draws the frame as a square and the push-in crops the board at that square's
+edge — a straight cut on the page until it was faded.
 
 **Text entrance** is `Reveal`, on the shared frame bus. No GSAP, and not going
 to be: ~40 KB gzip against 15 KB of first-load headroom, and it brings its own
@@ -718,11 +751,13 @@ bundle, which no targeted browser downloads.
   alias and typed by a hand-written `scene.d.mts`. It stays plain ESM because
   the prerender harness serves it straight to headless Chromium through an
   import map; converting it would put a bundler back in the render path.
-- Generating the six texture sets costs **195 ms** on a discrete GPU (board 51,
-  die 40, brushed 32, cell 27, driver 26, grille 20) — one blocking chunk on the
-  visitor's main thread, paid once when the configurator mounts. Sobel passes
-  stay at 512² for that reason: a normal map is low-frequency, and matching the
-  1024² albedo would quadruple the only pure main-thread JS here.
+- Generating the eight texture sets costs **~216 ms** warm on a desktop CPU
+  (board 62, brushed 46, die 28, driver 27, grille 21, cell 15, antenna 9,
+  perforation 9), plus a one-off ~190 ms of first-use canvas and JIT cost that
+  lands on whichever set runs first. `prebuildTextures` yields between sets, so
+  that is eight separate tasks when the configurator mounts, not one block.
+  Sobel passes stay at 512² for that reason: a normal map is low-frequency, and
+  matching the 1024² albedo would quadruple the only pure main-thread JS here.
 - The dev-only `window.__player` handle in `Stage.tsx` exists for
   `scripts/shoot.mjs` and devtools poking. It is stripped in production, which
   is why `?debug=1` exists separately: it publishes the live `telemetry` object
