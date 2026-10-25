@@ -103,11 +103,16 @@ export function ConfiguratorLive({ onFail }: { onFail: () => void }) {
     void (async () => {
       // Dynamic, so three.js is fetched when this section mounts rather than
       // when the module graph is built.
-      const { createStage } = await import("@device/scene.mjs");
+      const { createStage, prebuildTextures } = await import("@device/scene.mjs");
+      if (cancelled) return;
+
+      // The textures in slices first, so the page keeps scrolling while they
+      // are generated; see `prebuildTextures`.
+      await prebuildTextures();
       if (cancelled) return;
 
       try {
-        stage = createStage(canvas);
+        stage = createStage(canvas, { deferEnvironment: true });
       } catch (error) {
         console.warn("[configurator] WebGL unavailable:", error);
         onFail();
@@ -116,6 +121,12 @@ export function ConfiguratorLive({ onFail }: { onFail: () => void }) {
 
       stageRef.current = stage;
       stage.setFinish(getMaterial(useAppStore.getState().material));
+
+      // Nothing draws until every shader is compiled. The canvas is still at
+      // opacity 0 here, so the wait is invisible — where drawing straight away
+      // froze the whole page for the length of the compile.
+      await stage.prepare();
+      if (cancelled) return;
 
       const { tier } = readEnvironment();
       const resize = () => {

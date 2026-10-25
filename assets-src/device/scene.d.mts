@@ -30,11 +30,26 @@ export interface Stage {
    */
   orbit(azimuth: number, elevation: number, distance?: number): void;
   setFinish(finish: Finish): void;
+  /**
+   * Builds a deferred environment and compiles every program `orbit` draws
+   * with, without blocking the main thread. Resolves when the first `orbit`
+   * will not stall on the shader compiler.
+   */
+  prepare(): Promise<void>;
   /** Releases geometry, materials and the WebGL context. */
   dispose(): void;
 }
 
-export declare function createStage(canvas: HTMLCanvasElement): Stage;
+/**
+ * Generates the procedural texture sets one task at a time, so the
+ * `createStage` that follows does not build them in one long block.
+ */
+export declare function prebuildTextures(): Promise<void>;
+
+export declare function createStage(
+  canvas: HTMLCanvasElement,
+  options?: { deferEnvironment?: boolean },
+): Stage;
 
 export declare const PHASES: {
   ROTATE_END: number;

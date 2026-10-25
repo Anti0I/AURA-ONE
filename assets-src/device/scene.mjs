@@ -109,7 +109,54 @@ function dataTexture(canvas) {
   return tex;
 }
 
-export function createStage(canvas) {
+/**
+ * Every generated texture set, by name. One table so `createStage` and
+ * `prebuildTextures` cannot disagree about a seed.
+ */
+const TEXTURE_SETS = {
+  brushed: () => brushedTextures(42),
+  pcb: () => pcbTextures(1337),
+  die: () => dieTextures(7),
+  grille: () => grilleTextures(),
+  driver: () => driverTextures(91),
+  wrap: () => cellWrapTextures(55),
+};
+
+/** Sets built ahead of `createStage`, each taken exactly once. */
+const prebuilt = new Map();
+
+function textureSet(name) {
+  const set = prebuilt.get(name) ?? TEXTURE_SETS[name]();
+  // Taken, not kept: the stage disposes these with itself, and a module-level
+  // reference would hold ~40 MB of canvases for the rest of the visit.
+  prebuilt.delete(name);
+  return set;
+}
+
+/**
+ * Generates the texture sets one task at a time, ahead of `createStage`.
+ *
+ * Built inline they are a single main-thread task — 280 ms measured on a
+ * desktop CPU, mid-scroll, as the configurator approaches — because the six
+ * generators are pure JS and canvas work with no natural break between them.
+ * Yielding after each set lets the page draw frames in between, so the cost
+ * arrives as six short stalls nobody sees rather than one long one everybody
+ * does. Optional: `createStage` builds whatever was not prebuilt.
+ */
+export async function prebuildTextures() {
+  for (const [name, build] of Object.entries(TEXTURE_SETS)) {
+    if (!prebuilt.has(name)) prebuilt.set(name, build());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
+/**
+ * `deferEnvironment` is for the live configurator: it leaves the studio
+ * environment unbuilt so `prepare()` can compile its shaders off the main
+ * thread first. The prerender wants the synchronous form — a stall there costs
+ * nobody anything, and it reads the canvas straight after the first render.
+ */
+export function createStage(canvas, { deferEnvironment = false } = {}) {
   const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: true,
@@ -127,7 +174,10 @@ export function createStage(canvas) {
   // Procedural studio environment. RoomEnvironment gives soft area-light
   // reflections in brushed metal without shipping a single HDRI byte.
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.03).texture;
+  const room = new RoomEnvironment();
+  if (!deferEnvironment) {
+    scene.environment = pmrem.fromScene(room, 0.03).texture;
+  }
 
   const key = new THREE.DirectionalLight(0xffffff, 2.1);
   key.position.set(3.4, 4.6, 4.2);
@@ -160,7 +210,7 @@ export function createStage(canvas) {
     return tex;
   };
 
-  const brushedMaps = brushedTextures(42);
+  const brushedMaps = textureSet("brushed");
   const brushedRM = asData(brushedMaps.rm);
   const brushedNormal = asData(brushedMaps.normal);
 
@@ -229,7 +279,7 @@ export function createStage(canvas) {
   // make the internals legible through the shell. That is a deliberate
   // stylisation on top of a lit surface, which is a different thing from the
   // surface being made of stylisation.
-  const pcbMaps = pcbTextures(1337);
+  const pcbMaps = textureSet("pcb");
   const pcbRM = asData(pcbMaps.rm);
   const pcbAlbedo = asColour(pcbMaps.albedo);
   const pcbMat = new THREE.MeshStandardMaterial({
@@ -245,7 +295,7 @@ export function createStage(canvas) {
     emissiveIntensity: 0.06,
   });
 
-  const dieMaps = dieTextures(7);
+  const dieMaps = textureSet("die");
   const dieRM = asData(dieMaps.rm);
   const dieAlbedo = asColour(dieMaps.albedo);
   const chipMat = new THREE.MeshStandardMaterial({
@@ -261,7 +311,7 @@ export function createStage(canvas) {
     emissiveIntensity: 0.05,
   });
 
-  const grilleMaps = grilleTextures();
+  const grilleMaps = textureSet("grille");
   const grilleRM = asData(grilleMaps.rm);
   const grilleAlbedo = asColour(grilleMaps.albedo);
   const grilleMat = new THREE.MeshStandardMaterial({
@@ -277,7 +327,7 @@ export function createStage(canvas) {
     emissiveIntensity: 0.04,
   });
 
-  const coneMaps = driverTextures(91);
+  const coneMaps = textureSet("driver");
   const coneRM = asData(coneMaps.rm);
   const driverFaceMat = new THREE.MeshStandardMaterial({
     map: asColour(coneMaps.albedo),
@@ -289,7 +339,7 @@ export function createStage(canvas) {
     roughness: 1,
   });
 
-  const wrapMaps = cellWrapTextures(55);
+  const wrapMaps = textureSet("wrap");
   const wrapRM = asData(wrapMaps.rm);
   const cellWrapMat = new THREE.MeshStandardMaterial({
     map: asColour(wrapMaps.albedo),
@@ -728,7 +778,94 @@ export function createStage(canvas) {
     shellMat.roughness = roughness;
   }
 
+  // ---- Shader warm-up ------------------------------------------------------
+  // WebGL links a program lazily and the first draw that uses it waits for the
+  // driver, on the main thread. Under ANGLE on Windows that driver is the D3D
+  // shader compiler, and PMREM's GGX filter is a 256-sample loop it unrolls:
+  // the environment cost 704 ms and the first orbit another 716 ms on a
+  // discrete GPU, measured as two long tasks while the page was being scrolled.
+  // `compileAsync` issues the same compiles through KHR_parallel_shader_compile
+  // and polls for completion, so the page keeps drawing while the driver works.
+
+  let preparing = null;
+  let disposed = false;
+
+  /**
+   * Compiles every program the configurator draws with, without blocking.
+   *
+   * The PMREM half reaches into the generator's private interface, because
+   * `fromScene` creates and uses its materials in one synchronous call and
+   * offers no way in between. If a three.js upgrade renames any of it, this
+   * falls through to the synchronous path: correct, just stalling.
+   */
+  function prepare() {
+    preparing ??= (async () => {
+      if (!scene.environment) {
+        try {
+          await warmEnvironment();
+        } catch (error) {
+          console.warn("[stage] environment warm-up skipped:", error);
+        }
+        if (disposed) return;
+        scene.environment = pmrem.fromScene(room, 0.03).texture;
+      }
+      // The orbit pose, so the compile sees exactly what `orbit` will draw.
+      applyTimeline(0);
+      await renderer.compileAsync(scene, camera);
+    })();
+    return preparing;
+  }
+
+  async function warmEnvironment() {
+    if (
+      typeof pmrem._setSize !== "function" ||
+      typeof pmrem._allocateTargets !== "function"
+    ) {
+      return;
+    }
+    // Same size `fromScene` defaults to, so it finds the ping-pong target and
+    // both filter materials already allocated and reuses them.
+    pmrem._setSize(256);
+    const target = pmrem._allocateTargets();
+
+    // Program keys depend on the render target — tone mapping and output colour
+    // space are both dropped when drawing off-screen — so each compile has to
+    // run with a target bound, exactly as the generator will. `compile` reads
+    // that state synchronously; only the wait is deferred.
+    //
+    // The geometry matters too: whether it has a `position` attribute is part
+    // of the key. A bare `BufferGeometry` — which is what three's own
+    // `_compileMaterial` uses — compiles a program the filter never draws with.
+    const filters = new THREE.Scene();
+    const plane = pmrem._lodMeshes?.[0]?.geometry;
+    for (const material of [pmrem._blurMaterial, pmrem._ggxMaterial]) {
+      if (plane && material) filters.add(new THREE.Mesh(plane, material));
+    }
+    renderer.setRenderTarget(target);
+    const pending = [
+      renderer.compileAsync(room, new THREE.PerspectiveCamera(90, 1, 0.1, 100)),
+      renderer.compileAsync(filters, new THREE.OrthographicCamera()),
+    ];
+    renderer.setRenderTarget(null);
+    try {
+      await Promise.all(pending);
+    } finally {
+      target.dispose();
+    }
+  }
+
   function dispose() {
+    disposed = true;
+    // `compileAsync` keeps polling its programs on a timer, and a disposed
+    // material has none — tearing down mid-compile throws from inside three.
+    if (preparing) {
+      void preparing.then(release, release);
+    } else {
+      release();
+    }
+  }
+
+  function release() {
     pmrem.dispose();
     // `Material.dispose()` releases the program, not the maps hanging off it.
     // Fifteen canvas textures across six parts is around 37 MB of GPU memory,
@@ -849,6 +986,7 @@ export function createStage(canvas) {
     getHotspots,
     orbit,
     setFinish,
+    prepare,
     dispose,
   };
 }
