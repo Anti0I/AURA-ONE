@@ -11,14 +11,17 @@ import { LazySection } from "@/components/ui/LazySection";
  * the split is worth it: the scanner drags in a particle system, the hotspot
  * layout and the audio synth, none of which the hero needs in order to paint.
  */
+const MIN_HEIGHT = "90svh";
+
 const XraySection = dynamic(
   () => import("./XraySection").then((m) => m.XraySection),
-  { ssr: false },
+  // Holds the reservation while the chunk is in flight; see `LazySection`.
+  { ssr: false, loading: () => <div style={{ minHeight: MIN_HEIGHT }} /> },
 );
 
 export function XraySectionLazy() {
   return (
-    <LazySection id="scanner" minHeight="90svh">
+    <LazySection id="scanner" minHeight={MIN_HEIGHT}>
       <XraySection />
     </LazySection>
   );

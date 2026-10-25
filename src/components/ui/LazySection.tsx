@@ -15,6 +15,14 @@ import { refreshScroll } from "@/lib/scroll/scrollEngine";
  * `minHeight` reserves the space up front so the placeholder swapping for the
  * real thing cannot shift anything below it. A lazy section that causes layout
  * shift has traded one bad metric for a worse one.
+ *
+ * The reservation ends when this mounts, but a `next/dynamic` child renders
+ * nothing until its chunk arrives — so every caller must also hand `dynamic` a
+ * `loading` placeholder of the same height. Without it the wrapper collapses to
+ * zero for the length of a fetch, the next section's placeholder slides up into
+ * range, mounts, collapses in turn, and the scanner, the configurator and the
+ * acoustics stage all mounted in one task: 1051 ms on a discrete GPU, measured
+ * mid-walkthrough, while the hero was still scrubbing.
  */
 export function LazySection({
   children,

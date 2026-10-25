@@ -27,16 +27,20 @@ import { useClientValue } from "@/lib/useClientValue";
  * fighting itself. The configurator above still dissolves out on the way past,
  * so the boundary keeps its hand-off.
  */
+function placeholderHeight() {
+  const { reducedMotion, tier } = readEnvironment();
+  return !reducedMotion && tier === "desktop" ? "520svh" : "100svh";
+}
+
 const AcousticsSection = dynamic(
   () => import("./AcousticsSection").then((m) => m.AcousticsSection),
-  { ssr: false },
+  // Holds the reservation while the chunk is in flight; see `LazySection`.
+  // Client-only, so reading the environment here cannot mismatch a hydration.
+  { ssr: false, loading: () => <div style={{ minHeight: placeholderHeight() }} /> },
 );
 
 export function AcousticsSectionLazy() {
-  const minHeight = useClientValue(() => {
-    const { reducedMotion, tier } = readEnvironment();
-    return !reducedMotion && tier === "desktop" ? "520svh" : "100svh";
-  }, "100svh");
+  const minHeight = useClientValue(placeholderHeight, "100svh");
 
   return (
     <LazySection id="acoustics" minHeight={minHeight}>
