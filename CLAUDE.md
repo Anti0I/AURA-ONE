@@ -31,6 +31,7 @@ npm run test:a11y        # 10 axe / keyboard / reduced-motion tests
 npm run test:perf        # scrub continuity, own config, one worker (~35 s)
 npm run assets:all       # regenerate every asset (~6.5 min; needs ffmpeg)
 node scripts/shoot.mjs   # screenshot the stage at five scroll positions
+node scripts/check-clearance.mjs  # no part through a shell wall, every frame
 ```
 
 `assets:*` is **not** part of the build. Neither `npm run build` nor CI touches
@@ -123,6 +124,24 @@ bright chrome render with near-black gives bright chrome and an invisible hue
 shift. Lightness comes from `Material.exposure`, authored from the OKLab
 lightness of the tint. See `src/lib/canvas/tint.ts`.
 
+**WebGL compiles on first use, on the main thread.** Under ANGLE on Windows
+the driver is the D3D compiler, and PMREM's 256-sample GGX filter is a loop it
+unrolls: 704 ms in `fromScene`, then 716 ms more on the configurator's first
+draw, both as long tasks mid-scroll. `stage.prepare()` compiles everything
+through `compileAsync` first. Two traps inside that: a program key depends on
+the bound render target (tone mapping and output colour space drop off-screen),
+and on whether the geometry *has a position attribute* — three's own
+`_compileMaterial` uses a bare `BufferGeometry` and so warms a program the
+filter never uses. `fromScene` went 760 ms → 31 ms once both matched.
+
+**The explode is choreography, and it can walk a part through a wall.** With
+everything moving at once the N1 core and the board left through the front of
+the top shell and the driver through the bottom one, ~30 frames each way. Parts
+now move in windows of the explode (`OPENS_FIRST`): enclosure first, internals
+once the rims have cleared them. `node scripts/check-clearance.mjs` tests every
+frame analytically against the shell's own superellipse; run it after touching
+any part's position, direction or distance.
+
 **Emissive is not lighting.** An `emissiveMap` is self-lit: it ignores every
 light, takes no shading across a form, throws no specular and carries no depth.
 Every internal part used to be a flat base colour with its whole texture on
@@ -169,8 +188,22 @@ stalls on its own pool, silently.
 **A decoder's queue is latency, not buffer.** It is a FIFO: a frame requested
 now emerges after everything already queued. Depth in frames hides this — 24
 frames is 40 ms of latency where a composite costs 1.65 ms and 900 ms where it
-costs 38, and both are real machines. Depth is derived from measured composite
-cost (`TARGET_QUEUE_MS`), not chosen.
+costs 38, and both are real machines. Depth is derived from measured per-frame
+cost (`TARGET_QUEUE_MS`), not chosen — and that cost is the *larger* of the
+compose time and the interval between decoder outputs. Sized on compose alone
+(~1 ms) the queue went 32 deep; with a decoder at ~110 frames a second that is
+290 ms in which the playhead moves on and the window drops the result, and a
+forward flick showed nothing new for 2.2 s. A desktop decoding VP9 at ~380
+frames a second never shows it, and CPU throttling does not slow the decoder:
+reproducing it took a temporary 9 ms spin in `onFrame`, standing in for a
+laptop's decoder.
+
+**Skipping forward to a keyframe needs no reset.** A keyframe replaces every
+reference, so it can follow any chunk; only going *back* has to drop the queue.
+The forward skip used to be priced as a reset and was rarely taken. It is free
+now — but measured on its own it did not fix the freeze above. Keyframe-only
+striding (every rung on a GOP boundary) was also tried and dropped: better on
+its best runs, a 1.2 s freeze and one stalled picture on its worst.
 
 **A request has to aim where the playhead is going.** A frame asked for at N
 arrives `latency` later, by which point the scroll is at N + speed × latency —
@@ -251,6 +284,12 @@ and why a parked card varies only its rotations while scale and depth stay
 frozen. But it was *not* what made the approach expensive — stepping the scale
 to cut rasterisations moved the figure from 19.90 ms to 19.90 ms, and the step
 was removed rather than kept as machinery that earns nothing.
+
+**A `next/dynamic` child renders nothing while its chunk loads.** `LazySection`
+drops its reserved height on mount, so without a `loading` placeholder of the
+same height the wrapper collapsed to zero, the next placeholder slid into range
+and mounted, and all three lazy sections mounted in one 1051 ms task while the
+hero was still scrubbing. Every lazy wrapper passes `loading`.
 
 **Beware which measurement you take.** The two entries above were nearly
 recorded the wrong way round. Frame times sampled with the scroll *parked* said
@@ -478,8 +517,8 @@ invisible when it works *and* when it breaks.
 
 **Why a video, given the player exists because video cannot be scrubbed.** That
 is true of the `<video>` *element*, not of video: `currentTime` is a request to
-seek, `VideoDecoder` is not. Inter-frame prediction then costs 4.31 MB where the
-same 360 pictures cost 14.94 MB as stills.
+seek, `VideoDecoder` is not. Inter-frame prediction then costs 4.05 MB where the
+same 360 pictures cost 14.23 MB as stills.
 
 **Scheduling.** Everything the player does about a fast scrub comes from two
 self-measurements: delivery rate in frames per second, and round-trip latency in
